@@ -2,6 +2,8 @@ import errno
 import os
 import glob
 import argparse
+import csv
+
 
 def mkdir_p(path):
 	try:
@@ -25,7 +27,7 @@ def write_script(tumor,normal,x,y):
 		script.write('ref="/media/Shakti/Genomes/Human/b37_genomes/human_g1k_v37.fasta"\n')
 		script.write('dbsnp="/media/Shakti/Genomes/Human/b37_genomes/dbsnp_137.b37.vcf"\n')
 		script.write('cosmic="/media/Shakti/Genomes/Human/b37_genomes/CosmicCodingMuts_v69_b37.vcf"\n\n')
-		script.write('java -Xmx100g -jar /usr/local/MuTect-1.1.7/mutect-1.1.7.jar \\\n')
+		script.write('java -Xmx100g -jar /software/$GATK/GenomeAnalysisTK.jar \\\n')
 		script.write('-T MuTect \\\n')
 		script.write('-R $ref \\\n')
 		script.write('--dbsnp $dbsnp \\\n')

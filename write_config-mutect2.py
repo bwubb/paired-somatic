@@ -25,12 +25,11 @@ def write_script(t,n):
 	with open('data/final/{0}/mutect2.sh'.format(t.id),'wb') as script:
 		script.write('#!/bin/bash\n\n')
 		script.write('module load java-sdk-1.8.0\n\n')
-		#script.write('SCRIPT=$(readlink -f "$0")\n')
-		#script.write('cd $(dirname "$SCRIPT")\n\n')
-		script.write('ref=""\n')
-		script.write('dbsnp=""\n')
-		script.write('cosmic=""\n')
-		script.write('GATK="/home/bwubb/software/GenomeAnalysisTK-3.7"\n\n'
+		script.write('ref="/home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta"\n')
+		script.write('dbsnp="/home/bwubb/b37_genomes/dbsnp_137.b37.vcf"\n')
+		script.write('cosmic="/home/bwubb/b37_genomes/CosmicCodingMuts_v69_b37.vcf"\n')
+		script.write('GATK="/home/bwubb/software/GenomeAnalysisTK-3.7"\n\n')
+		script.write('module load java-sdk-1.8.0\n\n')
 		script.write('java -Xmx30g -jar /software/$GATK/GenomeAnalysisTK.jar \\\n')
 		script.write('-T MuTect2 \\\n')
 		script.write('-R $ref \\\n')

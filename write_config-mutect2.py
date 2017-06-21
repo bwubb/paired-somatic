@@ -43,8 +43,8 @@ def write_script(t,n):
 		script.write('--vcf {0}\n'.format(os.path.abspath('data/final/{0}/{0}.mutect.vcf\n'.format(t.id))))
 	print 'data/config/{0}/mutect.sh was written.'.format(t.id)
 
-def make_dirs(tumor,normal,):
-	mkdir_p('mutect/{}'.format(tumor))
+def make_dirs(tumor,normal):
+	mkdir_p('data/work/{}'.format(tumor))
 
 def main(argv=None):
 	p = argparse.ArgumentParser()

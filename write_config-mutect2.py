@@ -40,7 +40,7 @@ def write_script(t,n):
 		script.write('--input_file:tumor {} \\\n'.format(t.bam))
 		script.write('--out {}.call_stats.txt \\\n'.format(t.id))
 		script.write('--coverage_file {}.coverage.wig.txt \\\n'.format(t.id))
-		script.write('--vcf {0}\n'.format(os.path.abspath('data/final/{0}/{0}.mutect.vcf\n'.format(t.id))))
+		script.write('--vcf {0}\n'.format(os.path.abspath('data/work/{0}/{0}.mutect.vcf\n'.format(t.id))))
 	print 'data/config/{0}/mutect.sh was written.'.format(t.id)
 
 def make_dirs(tumor,normal):

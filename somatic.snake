@@ -1,0 +1,206 @@
+
+
+import tabix
+import csv
+import os
+from snakemake.utils import R
+from pybedtools import BedTool
+
+
+#with open(config['project']['pair_list'],'r') as p:
+with open('pairs.list','r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+#with open(config['project']['sample_list'],'r') as i:
+with open('samples.list','r') as i:
+    SAMPLES=i.read().splitlines()
+
+def get_normal_bam(wildcards):
+    return "bam_input/final/{normal}/{reference}/{normal}.ready.bam".format(normal=PAIRS[wildcards.tumor],reference=wildcards.reference)
+
+def get_normal_raw_mpileup(wildcards):
+    return "data/work/{normal}/{reference}/raw.mpileup".format(normal=PAIRS[wildcards.tumor],reference=wildcards.reference)
+
+def get_normal_targets_mpileup(wildcards):
+    return "data/work/{normal}/{reference}/targets.mpileup".format(normal=PAIRS[wildcards.tumor],reference=wildcards.reference)
+
+def get_purity(wildcards):
+    if os.path.isfile("data/work/{tumor}/{reference}/{tumor}_seqz_confints_CP.txt".format(tumor=wildcards.tumor,reference=wildcards.reference)):
+        with open("data/work/{tumor}/{reference}/{tumor}_seqz_confints_CP.txt".format(tumor=wildcards.tumor,reference=wildcards.reference),'r') as file:
+            lines=file.read().splitlines()
+            return lines[2].split('\t')[0]
+    else:
+        return '1.0'
+
+rule all:
+    input:
+        expand("data/work/{tumor}/{reference}/varscan.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key']),
+        expand("data/work/{tumor}/{reference}/mutect.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key']),
+        expand("data/work/{tumor}/{reference}/vardict.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+
+rule only_Mutect:
+    input:
+        expand("data/work/{tumor}/{reference}/mutect.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+
+rule only_VarScan:
+    input:
+        expand("data/work/{tumor}/{reference}/varscan.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+
+rule only_VarDictJava:
+    input:
+        expand("data/work/{tumor}/{reference}/vardict.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+
+rule MuTect2:
+    input:
+        tumor="bam_input/final/{tumor}/{reference}/{tumor}.ready.bam",
+        normal=get_normal_bam
+    output:#--bamOutput {output.bam}
+        "data/work/{tumor}/{reference}/mutect.vcf.gz"
+    params:
+        ref=config['resources']['reference']['fasta'],
+        cosmic='/home/bwubb/resources/Vcf_files/CosmicCodingMuts_v69_b37.vcf',
+        intervals=config['resources']['library']['intervals'],
+        memory='56320m',
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -T MuTect2 -R {params.ref} -I:tumor {input.tumor} -I:normal {input.normal} --cosmic {params.cosmic} -L {params.intervals} -o {output}"
+
+rule VarDictJava:
+    input:
+        tumor="bam_input/final/{tumor}/{reference}/{tumor}.ready.bam",
+        normal=get_normal_bam
+    output:
+        "data/work/{tumor}/{reference}/vardict.vcf.gz"
+    params:
+        ref=config['resources']['reference']['fasta'],
+        bed=config['resources']['library']['bed'],
+        path="$HOME/software/VarDictJava/VarDict",
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        AF_THR=0.01
+    threads:
+        4
+    shell:
+        "$HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {output}"
+
+
+rule raw_mpileup:
+    input:
+        "bam_input/final/{sample}/{reference}/{sample}.ready.bam"
+    output:
+        "data/work/{sample}/{reference}/raw.mpileup"
+    params:
+        ref=config['resources']['reference']['fasta']
+    shell:
+        "samtools mpileup -A -o {output} -f {params.ref} -Q 20 {input}"
+
+#This is too much for exome. It needs to be done chr at a time and concatenated
+rule sort_mpileup:
+    input:
+        "data/work/{sample}/{reference}/raw.mpileup"
+    output:
+        "data/work/{sample}/{reference}/sorted.mpileup"
+    run:
+        K={'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'11':11,'12':12,'13':13,'14':14,'15':15,'16':16,'17':17,'18':18,'19':19,'20':20,'21':21,'22':22,'X':23,'Y':24}
+        with open(input[0],'r') as ifile, open(output[0],'w') as ofile:
+            reader=csv.reader(ifile,delimiter='\t')
+            writer=csv.writer(ofile,delimiter='\t')
+            writer.writerows(sorted(reader,key=lambda row: (K[row[0]],int(row[1]))))
+
+rule target_mpileup:
+    input:
+        "data/work/{sample}/{reference}/sorted.mpileup"
+    output:
+        "data/work/{sample}/{reference}/targets.mpileup"
+    params:
+        bed=config['resources']['library']['bed']
+    run:
+        shell('bgzip -c {input} > sorted.mpileup.gz')
+        shell('tabix -b 2 -e 2 {input}')
+        bed=BedTool(params['bed'])
+        tb=tabix.open(input[0]+'.tbi')
+        with open(output[0],'w') as file:
+            writer=csv.writer(file,delimiter='\t')
+            for row in bed.sort().merge():
+                try:
+                    writer.writerows(tb.querys('{}:{}-{}'.format(*row[:3])))
+                except tabix.TabixError as e:
+                    print(str(e).upper(),'for {}:{}-{}'.format(*row[:3]))
+
+rule VarScan:#Add no sort option?
+    input:
+        #tumor="data/work/{tumor}/{reference}/targets.mpileup",
+        #normal=get_normal_targets_mpileup,
+        tumor="data/work/{tumor}/{reference}/raw.mpileup",
+        normal=get_normal_raw_mpileup,
+        seqz="data/work/{tumor}/{reference}/{tumor}_confints_CP.txt"
+        #require sequenza output, but this part is only for WES
+    output:
+        #"data/work/{tumor}/{reference}/varscan.vcf.gz"
+        "data/work/{tumor}/{reference}/varscan.indel.vcf",
+        "data/work/{tumor}/{reference}/varscan.snp.vcf"
+    params:
+        out=lambda wildcards: "data/work/{tumor}/{reference}/varscan".format(tumor=wildcards.tumor,reference=wildcards.reference),
+        purity=get_purity,
+        memory='56320m'
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/VarScan/VarScan.v2.3.9.jar somatic {input.normal} {input.tumor} {params.out} --output-vcf 1 --tumor-purity {params.purity}"
+
+rule temp_combine:#add the combine at the above
+    input:
+        indel="data/work/{tumor}/{reference}/varscan.indel.vcf",
+        snp="data/work/{tumor}/{reference}/varscan.snp.vcf"
+    output:
+        "data/work/{tumor}/{reference}/varscan.vcf.gz"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        memory='10240m'
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T CombineVariants "
+        "--variant:snp {input.snp} --variant:indel {input.indel} -priority snp,indel --assumeIdenticalSamples -env -o {output}"
+
+#rule Freebayes
+
+#rule pileup2seqz:
+#This can be run with multiprocs now
+rule bam2seqz:
+    input:
+        tumor="data/work/{tumor}/{reference}/raw.mpileup",
+        normal=get_normal_raw_mpileup
+    params:
+        gc="$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"
+    output:
+        "data/work/{tumor}/{reference}/seqz.gz"
+    shell:
+        #"sequenza-utils.py pileup2seqz -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+        "sequenza-utils bam2seqz --pileup -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+
+rule seqz_bin:
+    input:
+        "data/work/{tumor}/{reference}/seqz.gz"
+    output:
+        "data/work/{tumor}/{reference}/seqz.small.gz"
+    params:
+        bin=50
+        #50 for exome 200 for genome
+    shell:
+        #"sequenza-utils.py seqz-binning -w {params.bin} -a {input} | gzip > {output}"
+        "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
+        
+
+rule seqz_extract:
+    input:
+        "data/work/{tumor}/{reference}/seqz.small.gz"
+    output:
+        "data/work/{tumor}/{reference}/{tumor}_confints_CP.txt",
+        "data/work/{tumor}/{reference}/{tumor}_segments.txt"
+    params:
+        outdir="data/work/{tumor}/{reference}",
+    threads:
+        4
+    run:
+        R("""
+        library(sequenza)
+        tumor<-sequenza.extract({input})
+        CP <- sequenza.fit(tumor, mc.cores = {threads})
+        sequenza.results(sequenza.extract = tumor, cp.table = CP, sample.id = {wildcards.tumor}, out.dir = {params.outdir})
+        """)#What if I dont do sample ID?

@@ -1,0 +1,78 @@
+
+
+from snakemake.utils import R
+
+
+
+
+
+
+
+rule make_fifo:
+	input:
+	output:
+		"sequenza/{sample}/chr{chr}/normal.fofo",
+		"sequenza/{sample}/chr{chr}/normal.fofo"
+	shell:
+		"mkfifo {output}"
+
+rule mpileup:
+	input:
+		#"sequenza/{sample}/chr{chr}/{genre}.fofo"
+	params:
+		ref="/home/bwubb/ref.fa",#load ref from config file
+		bam="bam_input/final/{genre}/{genre}.ready.bam"
+	output:
+		#touch("sequenza/{sample}/chr{chr}/{genre}.mpileup")
+		"sequenza/{sample}/chr{chr}/{genre}.mpileup"
+	shell:
+		#"samtools view -b {params.bam} {chr} | samtools mpileup -f {params.ref} -Q 20 - > {input}"
+		"samtools view -b {params.bam} {chr} | samtools mpileup -f {params.ref} -Q 20 - > {output}"
+
+rule pileup2seqz:
+	input:
+		"sequenza/{sample}/chr{chr}/tumor.mpileup",
+		"sequenza/{sample}/chr{chr}/normal.mpileup"
+	params:
+		gc="/home/bwubb/GRCh38_GDC/GRCh38.d1.vd1.gc50Base.txt.gz"#FIX#
+	output:
+		"sequenza/{sample}/chr{chr}/seqz.gz"
+	shell:
+		#"sequenza-utils.py pileup2seqz -gc $gc -n normal.fifo -t tumor.fifo | gzip > {output}
+		"sequenza-utils.py pileup2seqz -gc $gc -n {input[1]} -t {input[0]} | gzip > {output}"
+
+def my_seqz_files(wildcards):
+	chromosomes=[str(c) for c in tuple(range(1,23))] + ['X']
+	return ['sequenza/{wildcards.sample}/chr{chr}/seqz.gz'.format(wilcards=wildcards,chr=c) for c in chromosomes]
+	
+rule make_seqz:
+	input:
+		my_seqz_files
+	output:
+		"sequenza/{sample}/seqz.gz"
+	shell:
+		"zcat {input} | gzip > {output}"
+
+rule seqz_bin:
+	input:
+		"sequenza/{sample}/seqz.gz"
+	output:
+		"sequenza/{sample}/seqz.small.gz"
+	shell:
+		"sequenza-utils.py seqz-binning -w 50 -a {input} | gzip > {output}"
+		#50 for exome 200 for genome
+
+rule extract:
+	input:
+		"sequenza/{sample}/seqz.small.gz"
+	params:
+		outdir="sequenza/{sample}/results",id="{sample}"
+	output:
+	run:
+		R("""
+		library(sequenza)
+		data.file <- "{{input}}"
+		tumor <- sequenza.extract(data.file)
+		CP <- sequenza.fit(tumor, mc.cores = {})\n'.format(cores))
+		sequenza.results(sequenza.extract = tumor, cp.table = CP, sample.id = "{params.id}", out.dir = "{params.outdir}")
+		""")

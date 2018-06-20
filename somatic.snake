@@ -3,30 +3,51 @@
 import tabix
 import csv
 import os
-from snakemake.utils import R
+import errno
 from pybedtools import BedTool
 
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno==errno.EEXIST and os.path.isdir(path):
+            pass
 
-#with open(config['project']['pair_list'],'r') as p:
-with open('pairs.list','r') as p:
-    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
-
-#with open(config['project']['sample_list'],'r') as i:
-with open('samples.list','r') as i:
+#sample_list in config, default is samples.list
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
     SAMPLES=i.read().splitlines()
 
-def get_normal_bam(wildcards):
-    return "bam_input/final/{normal}/{reference}/{normal}.ready.bam".format(normal=PAIRS[wildcards.tumor],reference=wildcards.reference)
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
-def get_normal_raw_mpileup(wildcards):
-    return "data/work/{normal}/{reference}/raw.mpileup".format(normal=PAIRS[wildcards.tumor],reference=wildcards.reference)
+#checking for bams:
+missing_bam=0
+for sample in SAMPLES:
+    mkdir_p('logs/cluster/%s' % sample)
+    if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
+        print('WARNING: < %s > Missing BAM!' % sample)
+        missing_bam+=1
+if missing_bam>0:
+    raise
 
-def get_normal_targets_mpileup(wildcards):
-    return "data/work/{normal}/{reference}/targets.mpileup".format(normal=PAIRS[wildcards.tumor],reference=wildcards.reference)
+def paired_bams(wildcards):
+    ref=config['resources']['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':'bam_input/final/{tumor}/{ref}/{tumor}.ready.bam'.format(tumor=tumor,ref=ref),'normal':'bam_input/final/{normal}/{ref}/{normal}.ready.bam'.format(normal=normal,ref=ref)}
+
+def paired_pileup(wildcards):
+    targets=config['resources']['library']['targets_key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':'data/work/{tumor}/{targets}/sequenza/raw.mpileup'.format(tumor=tumor,targets=targets),'normal':'data/work/{normal}/{targets}/sequenza/raw.mpileup'.format(normal=normal,targets=targets)}
+
+def sample_bam(wildcards):
+    return 'bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=wildcards.sample,reference=config['resources']['reference']['key'])
 
 def get_purity(wildcards):
-    if os.path.isfile("data/work/{tumor}/{reference}/{tumor}_seqz_confints_CP.txt".format(tumor=wildcards.tumor,reference=wildcards.reference)):
-        with open("data/work/{tumor}/{reference}/{tumor}_seqz_confints_CP.txt".format(tumor=wildcards.tumor,reference=wildcards.reference),'r') as file:
+    if os.path.isfile("data/work/{tumor}/{targets}/{tumor}_seqz_confints_CP.txt".format(tumor=wildcards.tumor,targets=wildcards.targets)):
+        with open("data/work/{tumor}/{targets}/{tumor}_seqz_confints_CP.txt".format(tumor=wildcards.tumor,targets=wildcards.targets),'r') as file:
             lines=file.read().splitlines()
             return lines[2].split('\t')[0]
     else:
@@ -34,60 +55,146 @@ def get_purity(wildcards):
 
 rule all:
     input:
-        expand("data/work/{tumor}/{reference}/varscan.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key']),
-        expand("data/work/{tumor}/{reference}/mutect.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key']),
-        expand("data/work/{tumor}/{reference}/vardict.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+        expand("data/work/{tumor}/{targets}/varscan/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key']),
+        expand("data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key']),
+        expand("data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key']),
+        expand("data/work/{tumor}/{targets}/strelka/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
 
 rule only_Mutect:
     input:
-        expand("data/work/{tumor}/{reference}/mutect.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+        expand("data/work/{tumor}/{targets}/mutect/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
 
 rule only_VarScan:
     input:
-        expand("data/work/{tumor}/{reference}/varscan.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+        expand("data/work/{tumor}/{targets}/varscan/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
 
 rule only_VarDictJava:
     input:
-        expand("data/work/{tumor}/{reference}/vardict.vcf.gz",tumor=PAIRS.keys(),reference=config['resources']['reference']['key'])
+        expand("data/work/{tumor}/{targets}/vardict/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+
+rule only_Strelka2:
+    input:
+        expand("data/work/{tumor}/{targets}/strelka/results/variants/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+
+#So rather then doing --bamOut options intitially, several of the tools including Mutect may have capability to provide intervals of manually filtered active regions.
+#Here is the list of things I want to look at.
+
+
+#Mutect2 need extra steps, its not yet somatic.
+#Common bi-allelic mutations, maybe from ExAC? or gnomAD
+#pileupsummariestable
+#calculatecontamination
+#filterMutectCalls
+
 
 rule MuTect2:
     input:
-        tumor="bam_input/final/{tumor}/{reference}/{tumor}.ready.bam",
-        normal=get_normal_bam
+        unpack(paired_bams)
     output:#--bamOutput {output.bam}
-        "data/work/{tumor}/{reference}/mutect.vcf.gz"
+        raw="data/work/{tumor}/{targets}/mutect/somatic.raw.vcf.gz",
+        snps="data/work/{tumor}/{targets}/mutect/somatic.snps.vcf.gz",
+        indels="data/work/{tumor}/{targets}/mutect/somatic.indels.vcf.gz"
     params:
         ref=config['resources']['reference']['fasta'],
-        cosmic='/home/bwubb/resources/Vcf_files/CosmicCodingMuts_v69_b37.vcf',
-        intervals=config['resources']['library']['intervals'],
-        memory='56320m',
+        #cosmic='/home/bwubb/resources/Vcf_files/CosmicCodingMuts_v69_b37.vcf',
+        intervals=config['resources']['library']['targets.intervals'],
+        memory='16g',
+        tumor=lambda wildcards: wildcards.tumor,
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
-        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -T MuTect2 -R {params.ref} -I:tumor {input.tumor} -I:normal {input.normal} --cosmic {params.cosmic} -L {params.intervals} -o {output}"
-
-rule VarDictJava:
+        """
+        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw}
+        
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -select-type SNP
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -select-type INDEL
+        """
+#If GRCh38 consider adding --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter, see documentation for details
+rule CalculateContamination:
     input:
-        tumor="bam_input/final/{tumor}/{reference}/{tumor}.ready.bam",
-        normal=get_normal_bam
+        unpack(paired_bams)
     output:
-        "data/work/{tumor}/{reference}/vardict.vcf.gz"
+        pileup="data/work/{tumor}/{targets}/mutect/getpileupsummaries.table",
+        contamination="data/work/{tumor}/{targets}/mutect/calculatecontamination.table"
+        #metrics?
+    params:
+        #allele=config['resources']['library']['gnomad.vcf']#could infer if I forget to place it, or I could have it made if it doesnt exist
+        allele="$HOME/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.S07604715.common_biallelic_snps.simplified.vcf.gz"
+    shell:
+        """
+        gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -O {output.pileup}
+        gatk CalculateContamination -I {output.pileup} -O {output.contamination}
+        """
+
+rule FilterMutectCall:
+    input:
+        vcf="data/work/{tumor}/{targets}/mutect/somatic.raw.vcf.gz",
+        contamination="data/work/{tumor}/{targets}/mutect/calculatecontamination.table"#Can I run filter without contamination? How can I find germline mutations for loh validation?
+    output:
+        "data/work/{tumor}/{targets}/mutect/somatic.once_filtered.vcf.gz"
+    shell:
+        "gatk FilterMutectCalls -V {input.vcf} --contamination-table {input.contamination} -O {output}"
+
+rule CollectSequencingArtifactMetrics:
+    input:
+        unpack(paired_bams)
+    output:
+        "data/work/{tumor}/{targets}/mutect/tumor_artifact.pre_adapter_detail_metrics.txt"
     params:
         ref=config['resources']['reference']['fasta'],
-        bed=config['resources']['library']['bed'],
+        output_p="data/work/{tumor}/{targets}/mutect/tumor_artifact"
+    shell:
+        'gatk CollectSequencingArtifactMetrics -R {params.ref} -I {input.tumor} -O {params.output_p} --FILE_EXTENSION ".txt"'
+
+rule FilterOrientationBias:
+    input:
+        vcf="data/work/{tumor}/{targets}/mutect/somatic.once_filtered.vcf.gz",
+        metrics="data/work/{tumor}/{targets}/mutect/tumor_artifact.pre_adapter_detail_metrics.txt"
+    output:
+        "data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz"
+    shell:
+        "gatk FilterByOrientationBias -AM G/T -AM C/T -V {input.vcf} -P {input.metrics} -O {output}"
+
+rule VarDictJava:#First a more lenient -P val, not sure what
+    input:
+        unpack(paired_bams)
+    output:
+        #snps="data/work/{tumor}/{targets}/vardict/somatic.snps.vcf.gz",
+        #indels="data/work/{tumor}/{targets}/vardict/somatic.indels.vcf.gz",
+        raw="data/work/{tumor}/{targets}/vardict/somatic.raw.vcf.gz"
+    params:
+        prefix=lambda wildcards: 'data/work/{tumor}/{targets}/vardict/somatic'.format(tumor=wildcards.tumor,targets=wildcards.targets),
+        ref=config['resources']['reference']['fasta'],
+        bed=config['resources']['library']['targets.bed'],
         path="$HOME/software/VarDictJava/VarDict",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
         AF_THR=0.01
     threads:
         4
+    shell:#split to snps and indels
+        """
+        $HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {output.raw}
+        tabix -p vcf {output.raw}
+        """
+        
+rule VarDictFilter:
+    input:
+        "data/work/{tumor}/{targets}/vardict/somatic.raw.vcf.gz"
+    output:
+        once="data/work/{tumor}/{targets}/vardict/somatic.once_filtered.vcf.gz",
+        twice="data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz"
     shell:
-        "$HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {output}"
-
+        """
+        bcftools filter --threads {threads} -e '((FORMAT/AF * FORMAT/DP < 6) && ((FORMAT/MQ < 55.0 && FORMAT/NM > 1.0) || (FORMAT/MQ < 60.0 && FORMAT/NM > 2.0) || (FORMAT/DP < 10) || (FORMAT/QUAL < 45)))' -s filter_1 -m + -O z {input} > {output.once}
+        tabix -p vcf {output.once}
+        bcftools filter --threads {threads} -e 'FORMAT/AF < 0.2 && FORMAT/QUAL < 55 && INFO/SSF > 0.06' -s filter_2 -m + -O z {output.once} > {output.twice}
+        tabix -p vcf {output.twice}
+        """
 
 rule raw_mpileup:
     input:
-        "bam_input/final/{sample}/{reference}/{sample}.ready.bam"
+        sample_bam
     output:
-        "data/work/{sample}/{reference}/raw.mpileup"
+        "data/work/{sample}/{targets}/sequenza/raw.mpileup"
     params:
         ref=config['resources']['reference']['fasta']
     shell:
@@ -96,89 +203,80 @@ rule raw_mpileup:
 #This is too much for exome. It needs to be done chr at a time and concatenated
 rule sort_mpileup:
     input:
-        "data/work/{sample}/{reference}/raw.mpileup"
+        "data/work/{sample}/{reference}/sequenza/raw.mpileup"
     output:
-        "data/work/{sample}/{reference}/sorted.mpileup"
+        "data/work/{sample}/{reference}/sequenza/sorted.mpileup.gz"
+    params:
+        temp="data/work/{sample}/{reference}/sequenza/sorted.mpileup"
     run:
         K={'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'11':11,'12':12,'13':13,'14':14,'15':15,'16':16,'17':17,'18':18,'19':19,'20':20,'21':21,'22':22,'X':23,'Y':24}
-        with open(input[0],'r') as ifile, open(output[0],'w') as ofile:
+        with open(input[0],'r') as ifile, open(params['temp'],'w') as ofile:
             reader=csv.reader(ifile,delimiter='\t')
             writer=csv.writer(ofile,delimiter='\t')
             writer.writerows(sorted(reader,key=lambda row: (K[row[0]],int(row[1]))))
+        shell('bgzip {params["temp"]}')
 
 rule target_mpileup:
     input:
-        "data/work/{sample}/{reference}/sorted.mpileup"
+        "data/work/{sample}/{reference}/sequenza/sorted.mpileup.gz"
     output:
-        "data/work/{sample}/{reference}/targets.mpileup"
+        "data/work/{sample}/{reference}/sequenza/targets.mpileup.gz"
     params:
-        bed=config['resources']['library']['bed']
+        temp="data/work/{sample}/{reference}/sequenza/targets.mpileup",
+        bed=config['resources']['library']['targets.bed']
     run:
-        shell('bgzip -c {input} > sorted.mpileup.gz')
-        shell('tabix -b 2 -e 2 {input}')
+        shell('tabix -b 2 -e 2 {input[0]}')
         bed=BedTool(params['bed'])
         tb=tabix.open(input[0]+'.tbi')
-        with open(output[0],'w') as file:
+        with open(params['temp'],'w') as file:
             writer=csv.writer(file,delimiter='\t')
             for row in bed.sort().merge():
                 try:
                     writer.writerows(tb.querys('{}:{}-{}'.format(*row[:3])))
                 except tabix.TabixError as e:
                     print(str(e).upper(),'for {}:{}-{}'.format(*row[:3]))
+        shell("bgzip {params['temp']}")
 
 rule VarScan:#Add no sort option?
     input:
-        #tumor="data/work/{tumor}/{reference}/targets.mpileup",
-        #normal=get_normal_targets_mpileup,
-        tumor="data/work/{tumor}/{reference}/raw.mpileup",
-        normal=get_normal_raw_mpileup,
-        seqz="data/work/{tumor}/{reference}/{tumor}_confints_CP.txt"
-        #require sequenza output, but this part is only for WES
+        #I dont recall if limiting to target mpileup worked.
+        unpack(paired_pileup),
+        seqz="data/work/{tumor}/{targets}/sequenza/{tumor}_confints_CP.txt"#want to change tumor to somatic
     output:
-        #"data/work/{tumor}/{reference}/varscan.vcf.gz"
-        "data/work/{tumor}/{reference}/varscan.indel.vcf",
-        "data/work/{tumor}/{reference}/varscan.snp.vcf"
+        raw="data/work/{tumor}/{targets}/varscan/somatic.raw.vcf.gz",
+        indel="data/work/{tumor}/{targets}/varscan/somatic.indel.vcf.gz",
+        snp="data/work/{tumor}/{targets}/varscan/somatic.snp.vcf.gz"#Note the none plural
     params:
-        out=lambda wildcards: "data/work/{tumor}/{reference}/varscan".format(tumor=wildcards.tumor,reference=wildcards.reference),
+        prefix=lambda wildcards: "data/work/{tumor}/{targets}/varscan/somatic".format(tumor=wildcards.tumor,targets=wildcards.targets),
         purity=get_purity,
-        memory='56320m'
+        memory='16g'
     shell:
-        "java -Xmx{params.memory} -jar $HOME/software/VarScan/VarScan.v2.3.9.jar somatic {input.normal} {input.tumor} {params.out} --output-vcf 1 --tumor-purity {params.purity}"
-
-rule temp_combine:#add the combine at the above
-    input:
-        indel="data/work/{tumor}/{reference}/varscan.indel.vcf",
-        snp="data/work/{tumor}/{reference}/varscan.snp.vcf"
-    output:
-        "data/work/{tumor}/{reference}/varscan.vcf.gz"
-    params:
-        reference=config['resources']['reference']['fasta'],
-        memory='10240m'
-    shell:
-        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T CombineVariants "
-        "--variant:snp {input.snp} --variant:indel {input.indel} -priority snp,indel --assumeIdenticalSamples -env -o {output}"
-
+        """
+        java -Xmx{params.memory} -jar $HOME/software/VarScan/VarScan.v2.3.9.jar somatic {input.normal} {input.tumor} {params.prefix} --output-vcf 1 --tumor-purity {params.purity}
+        bgzip {params.prefix}.snp.vcf && tabix -p vcf {output.snp}
+        bgzip {params.prefix}.indel.vcf && tabix -p vcf {output.indel}
+        bcftools concat -a {output.snp} {output.indel} | bcftools sort -O z -o {output.raw} && tabix -p vcf {output.raw}
+        """
 #rule Freebayes
 
 #rule pileup2seqz:
 #This can be run with multiprocs now
 rule bam2seqz:
     input:
-        tumor="data/work/{tumor}/{reference}/raw.mpileup",
-        normal=get_normal_raw_mpileup
+        unpack(paired_pileup)
     params:
         gc="$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"
     output:
-        "data/work/{tumor}/{reference}/seqz.gz"
+        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
     shell:
         #"sequenza-utils.py pileup2seqz -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
         "sequenza-utils bam2seqz --pileup -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
 
 rule seqz_bin:
     input:
-        "data/work/{tumor}/{reference}/seqz.gz"
+        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
     output:
-        "data/work/{tumor}/{reference}/seqz.small.gz"
+        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
     params:
         bin=50
         #50 for exome 200 for genome
@@ -189,18 +287,90 @@ rule seqz_bin:
 
 rule seqz_extract:
     input:
-        "data/work/{tumor}/{reference}/seqz.small.gz"
-    output:
-        "data/work/{tumor}/{reference}/{tumor}_confints_CP.txt",
-        "data/work/{tumor}/{reference}/{tumor}_segments.txt"
+        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
+    output:#rename
+        "data/work/{tumor}/{targets}/sequenza/{tumor}_confints_CP.txt",
+        "data/work/{tumor}/{targets}/sequenza/{tumor}_segments.txt"
     params:
-        outdir="data/work/{tumor}/{reference}",
+        outdir="data/work/{tumor}/{targets}/sequenza"
     threads:
         4
-    run:
-        R("""
-        library(sequenza)
-        tumor<-sequenza.extract({input})
-        CP <- sequenza.fit(tumor, mc.cores = {threads})
-        sequenza.results(sequenza.extract = tumor, cp.table = CP, sample.id = {wildcards.tumor}, out.dir = {params.outdir})
-        """)#What if I dont do sample ID?
+    script:
+        "sequenza-snakemake.R"
+
+rule Manta:
+    input:
+        unpack(paired_bams)
+    output:
+        #bam output
+        "data/work/{tumor}/{targets}/manta/results/variants/candidateSmallIndels.vcf.gz",
+        "data/work/{tumor}/{targets}/manta/results/variants/candidateSV.vcf.gz",
+        "data/work/{tumor}/{targets}/manta/results/variants/diploidSV.vcf.gz",
+        "data/work/{tumor}/{targets}/manta/results/variants/somaticSV.vcf.gz"
+    params:
+        workdir="data/work/{tumor}/{targets}/manta",
+        reference=config['resources']['reference']['fasta'],
+        bedgz=config['resources']['library']['targets.bedgz']
+    threads:
+        4
+    shell:
+        """
+        $HOME/software/manta/bin/configManta.py --normalBam {input.normal} --tumorBam {input.tumor} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.workdir}
+        {params.workdir}/runWorkflow.py -m local -j {threads}
+        """
+
+rule Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont work if the runWorkflow.py script already exists.
+    input:
+        unpack(paired_bams),
+        indels="data/work/{tumor}/{targets}/manta/results/variants/candidateSmallIndels.vcf.gz"
+    output:
+        #bam output
+        snvs="data/work/{tumor}/{targets}/strelka/results/variants/somatic.snvs.vcf.gz",#not snps
+        indels="data/work/{tumor}/{targets}/strelka/results/variants/somatic.indels.vcf.gz",
+        raw="data/work/{tumor}/{targets}/strelka/somatic.raw.vcf.gz"
+    params:
+        workdir="data/work/{tumor}/{targets}/strelka",
+        reference=config['resources']['reference']['fasta'],
+        bedgz=config['resources']['library']['targets.bedgz']
+    threads:
+        4
+    shell:
+        """
+        $HOME/software/strelka/bin/configureStrelkaSomaticWorkflow.py --normalBam {input.normal} --tumorBam {input.tumor} --indelCandidates {input.indels} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.workdir}
+        {params.workdir}/runWorkflow.py -m local -j {threads}
+        bcftools concat -a --threads {threads} {output.snvs} {output.indels} | bcftools sort -O z -o {output.raw}
+        tabix -p vcf {output.raw}
+        """
+        #can add -m, --max-mem <float>[kMG]    maximum memory to use [768M] for sort
+
+rule bcftools_isec:
+    input:
+        mutect="data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz",
+        strelka="data/work/{tumor}/{targets}/strelka/somatic.raw.vcf.gz",
+        vardict="data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",
+        varscan="data/work/{tumor}/{targets}/varscan/somatic.raw.vcf.gz"
+    output:
+        "data/work/{tumor}/{targets}/ensemble/sites.txt"
+    shell:
+        "bcftools isec -n +2 -f PASS {input.mutect} {input.strelka} {input.vardict} {input.varscan} > {output}"
+
+rule my_ensemble:
+    input:
+        "data/work/{tumor}/{targets}/ensemble/sites.txt"
+    output:
+        "data/work/{tumor}/{targets}/ensemble/somatic.n2.pass.vcf.gz"
+    params:#Is the lib necessary? can I make a ensemble-snakemake.py?
+        lib=lambda wildcards: wildcards.targets
+    shell:
+        "python annotated_somatic_vcf.py -I {input} -O {output} --lib {params.lib}"
+
+rule table_annovar:
+    input:
+        'hello'
+    output:
+        'world'
+    params:
+        humandb="$HOME/resources/annnovar/humandb",
+        outfile="path lib stuff?"
+    shell:
+        "table_annovar.pl {input} {params.humandb} --buildver hg19 --vcfinput --outfile {params.outfile} --protocol refGene,cytoband,gwasCatalog,genomicSuperDups,dbscsnv11,dbnsfp33a,popfreq_max_20150413,exac03,exac03nontcga,gnomad_exome,avsnp150,snp138NonFlagged,icgc21,cosmic84_coding,cosmic84_noncoding,clinvar_20170905 --operation g,r,r,r,f,f,f,f,f,f,f,f,f,f,f,f -remove"

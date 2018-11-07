@@ -1,0 +1,71 @@
+
+
+
+
+
+
+rule MuTect2:
+    input:
+        unpack(paired_bams)
+    output:#--bamOutput {output.bam}
+        raw="data/work/{tumor}/{targets}/mutect/somatic.raw.vcf.gz",
+        snps="data/work/{tumor}/{targets}/mutect/somatic.snps.vcf.gz",
+        indels="data/work/{tumor}/{targets}/mutect/somatic.indels.vcf.gz"
+    params:
+        ref=config['resources']['reference']['fasta'],
+        #cosmic='/home/bwubb/resources/Vcf_files/CosmicCodingMuts_v69_b37.vcf',
+        intervals=config['resources']['library']['targets_intervals'],
+        memory='16g',
+        tumor=lambda wildcards: wildcards.tumor,
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+    shell:
+        """
+        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw}
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -select-type SNP
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -select-type INDEL
+        """
+#If GRCh38 consider adding --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter, see documentation for details
+rule CalculateContamination:
+    input:
+        unpack(paired_bams)
+    output:
+        pileup="data/work/{tumor}/{targets}/mutect/getpileupsummaries.table",
+        contamination="data/work/{tumor}/{targets}/mutect/calculatecontamination.table"
+        #metrics?
+    params:
+        #allele=config['resources']['library']['gnomad.vcf']#could infer if I forget to place it, or I could have it made if it doesnt exist
+        allele="$HOME/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.S07604715.common_biallelic_snps.simplified.vcf.gz"
+    shell:
+        """
+        gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -O {output.pileup}
+        gatk CalculateContamination -I {output.pileup} -O {output.contamination}
+        """
+
+rule FilterMutectCall:
+    input:
+        vcf="data/work/{tumor}/{targets}/mutect/somatic.raw.vcf.gz",
+        contamination="data/work/{tumor}/{targets}/mutect/calculatecontamination.table"#Can I run filter without contamination? How can I find germline mutations for loh validation?
+    output:
+        "data/work/{tumor}/{targets}/mutect/somatic.once_filtered.vcf.gz"
+    shell:
+        "gatk FilterMutectCalls -V {input.vcf} --contamination-table {input.contamination} -O {output}"
+
+rule CollectSequencingArtifactMetrics:
+    input:
+        unpack(paired_bams)
+    output:
+        "data/work/{tumor}/{targets}/mutect/tumor_artifact.pre_adapter_detail_metrics.txt"
+    params:
+        ref=config['resources']['reference']['fasta'],
+        output_p="data/work/{tumor}/{targets}/mutect/tumor_artifact"
+    shell:
+        'gatk CollectSequencingArtifactMetrics -R {params.ref} -I {input.tumor} -O {params.output_p} --FILE_EXTENSION ".txt"'
+
+rule FilterOrientationBias:
+    input:
+        vcf="data/work/{tumor}/{targets}/mutect/somatic.once_filtered.vcf.gz",
+        metrics="data/work/{tumor}/{targets}/mutect/tumor_artifact.pre_adapter_detail_metrics.txt"
+    output:
+        "data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz"
+    shell:
+        "gatk FilterByOrientationBias -AM G/T -AM C/T -V {input.vcf} -P {input.metrics} -O {output}"

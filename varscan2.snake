@@ -1,0 +1,110 @@
+
+
+import tabix
+from pybedtools import BedTool
+
+def paired_pileup(wildcards):
+    targets=config['resources']['library']['targets_key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':'data/work/{tumor}/{targets}/sequenza/raw.mpileup'.format(tumor=tumor,targets=targets),'normal':'data/work/{normal}/{targets}/sequenza/raw.mpileup'.format(normal=normal,targets=targets)}
+
+def paired_bams(wildcards):
+    ref=config['resources']['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    if config['project'].get('bam_list',False):
+        return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
+    else:
+        return {'tumor':'bam_input/final/{tumor}/{ref}/{tumor}.ready.bam'.format(tumor=tumor,ref=ref),'normal':'bam_input/final/{normal}/{ref}/{normal}.ready.bam'.format(normal=normal,ref=ref)}
+
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
+
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+if config['project'].get('bam_list',False):
+    with open(config['project']['bam_list'],'r') as b:
+        BAMS=dict(line.split('\t') for line in b.read().splitlines())
+else:
+    BAMS=False
+    missing_bam=0
+    for sample in SAMPLES:
+        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
+            print('WARNING: < %s > Missing BAM!' % sample)
+            missing_bam+=1
+        if missing_bam>0:
+            raise
+
+rule all:
+    input:
+        expand("data/work/{tumor}/{targets}/varscan/varscan_v2-4.snp.vcf",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+
+rule pair_mpileup:
+    input:
+        unpack(paired_bams)
+    output:
+        "data/work/{tumor}/{targets}/varscan/normal_tumor.targets.mpileup.gz"
+    params:
+        ref=config['resources']['reference']['fasta'],
+        bed=config['resources']['library']['targets_bed']
+    shell:
+        "samtools mpileup -ABR -f {params.ref} -l {params.bed} -Q 20 {input.normal} {input.tumor} | bgzip -c > {output}"
+
+rule target_mpileup:
+    input:
+        "data/work/{tumor}/{targets}/varscan/normal_tumor.mpileup"
+    output:
+        "data/work/{tumor}/{targets}/varscan/normal_tumor.targets.mpileup.gz"
+    params:
+        temp="data/work/{tumor}/{targets}/varscan/normal_tumor.targets.mpileup",
+        bed=config['resources']['library']['targets_bed']
+    run:
+        shell('tabix -b 2 -e 2 {input[0]}')
+        bed=BedTool(params['bed'])
+        tb=tabix.open(input[0]+'.tbi')
+        with open(params['temp'],'w') as file:
+            writer=csv.writer(file,delimiter='\t')
+            for row in bed.sort().merge():
+                try:
+                    writer.writerows(tb.querys('{}:{}-{}'.format(*row[:3])))
+                except tabix.TabixError as e:
+                    print(str(e).upper(),'for {}:{}-{}'.format(*row[:3]))
+        shell("bgzip {params['temp']}")
+
+
+#rule limit_mpileup:
+#    input
+#        "data/work/{tumor}/{targets}/varscan/normal_tumor.mpileup"#gz?
+#    output:
+#    
+#    shell:
+#Please provide a regions file or a positions file
+#USAGE: java -jar VarScan.jar limit [infile] OPTIONS
+#        infile - A file of chromosome-positions, tab-delimited
+#        OPTIONS
+#        --positions-file - a file of chromosome-positions, tab delimited, or VCF
+#        --regions-file - a file of chromosome-start-stops, tab delimited
+#        --margin-size - shoulder bases to allow on either side of targets [0]
+#        --output-file - Output file for the matching variants
+#        --not-file - Output file for variants NOT matching regions/positions
+
+rule VarScan:
+    input:
+#        unpack(paired_pileup),
+        "data/work/{tumor}/{targets}/varscan/normal_tumor.targets.mpileup.gz",
+        CP="data/work/{tumor}/{targets}/sequenza/{tumor}_confints_CP.txt"#want to change tumor to somatic
+    output:
+        indel="data/work/{tumor}/{targets}/varscan/varscan_v2-4.indel.vcf",
+        snp="data/work/{tumor}/{targets}/varscan/varscan_v2-4.snp.vcf"#Note the none plural
+    params:
+        prefix=lambda wildcards: "data/work/{tumor}/{targets}/varscan/varscan_v2-4".format(tumor=wildcards.tumor,targets=wildcards.targets),
+        #args='--min-coverage 3 --min-var-freq 0.08 --p-value 0.10 --somatic-p-value 0.05 --strand-filter 0',
+        args="--min-coverage 5 --p-value 0.98 --strand-filter 1",
+        memory='16g'
+    run:
+        with open(input["CP"],'r') as file:
+            lines=file.read().splitlines()
+            purity=lines[3].split('\t')[0]#3 for max
+        shell(f"java -Xmx{params.memory} -jar $HOME/software/VarScan/VarScan.v2.4.3.jar somatic {input} {params.prefix} --mpileup 1 --output-vcf 1 --tumor-purity {purity} {params.args}")

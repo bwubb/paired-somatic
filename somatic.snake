@@ -19,7 +19,7 @@ with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
 #checking for bams:
-missing_bam=0
+
 for sample in SAMPLES:
     mkdir_p('logs/cluster/%s' % sample)
 
@@ -28,11 +28,13 @@ if config['project'].get('bam_list',False):
         BAMS=dict(line.split('\t') for line in b.read().splitlines())
 else:
     BAMS=False
-    if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
-        print('WARNING: < %s > Missing BAM!' % sample)
-        missing_bam+=1
-    if missing_bam>0:
-        raise
+    missing_bam=0
+    for sample in SAMPLES:
+        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
+            print('WARNING: < %s > Missing BAM!' % sample)
+            missing_bam+=1
+        if missing_bam>0:
+            raise
 
 def paired_bams(wildcards):
     ref=config['resources']['reference']['key']
@@ -115,8 +117,11 @@ rule intersect_other_things:
 
 rule only_Strelka2:
     input:
-        expand("data/work/{tumor}/{targets}/strelka/results/variants/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+        expand("data/work/{tumor}/{targets}/strelka/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
 
+rule only_Sequenza:
+    input:
+        expand("data/work/{tumor}/{targets}/sequenza/{tumor}_segments.txt",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
 #So rather then doing --bamOut options intitially, several of the tools including Mutect may have capability to provide intervals of manually filtered active regions.
 #Here is the list of things I want to look at.
 
@@ -307,9 +312,14 @@ rule VarScan:#Add no sort option?
         with open(input["CP"],'r') as file:
             lines=file.read().splitlines()
             purity=lines[3].split('\t')[0]#3 for max
-        shell(f"java -Xmx{params.memory} -jar $HOME/software/VarScan/VarScan.v2.4.3.jar somatic {input.normal} {input.tumor} {params.prefix} --output-vcf 1 --tumor-purity {purity} {params.args}")
+        shell(f"java -Xmx{params.memory} -jar $HOME/software/VarScan/VarScan.v2.3.9.jar somatic {input.normal} {input.tumor} {params.prefix} --output-vcf 1 --tumor-purity {purity} {params.args}")
         #bcftools concat -a {output.snp} {output.indel} | bcftools sort -O z -o {output.raw} && tabix -p vcf {output.raw}
         #SS=2
+
+rule special:
+    input:
+        expand("data/work/{tumor}/{targets}/varscan/varscan.snp.vcf",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+
 rule VarScan_filter:
     input:
         snp="data/work/{tumor}/{targets}/varscan/varscan.snp.vcf",

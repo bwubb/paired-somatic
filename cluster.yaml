@@ -1,0 +1,58 @@
+'__default__':
+    'M': '6144'
+    'n': '1'
+    'J': '{wildcards.tumor}_{rule}'
+    'eo': 'logs/cluster/{wildcards.tumor}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.tumor}/{rule}.o'
+raw_mpileup:
+    'J': '{wildcards.sample}_{rule}'
+    'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'
+MuTect2:
+    'M': '18432'
+VarDictJava:
+    'M': '18432'
+    'n': '4'
+VarScan:
+    'M': '18432'
+Manta:
+    'M': '18432'
+    'n': '4'
+Strelka2:
+    'M': '18432'
+    'n': '4'
+HaplotypeCaller_byChr:
+    'M': '18432'
+    'J': '{wildcards.sample}_{wildcards.chr}_{rule}'
+    'eo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.chr}.o'
+GenomicsDBImport_byChr:
+    'M': '18432'
+    'J': '{wildcards.project}_{wildcards.chr}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+GenotypeGVCFs_byChr:
+    'M': '18432'
+    'J': '{wildcards.project}_{wildcards.chr}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+CombineGVCFs_normals:
+    'M': '18432'
+    'J': '{wildcards.project}_{rule}_{wildcards.chr}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+GenotypeGVCF_normals:
+    'M': '18432'
+    'J': '{wildcards.project}_{rule}_{wildcards.chr}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+concat_vcf_target_restricted:
+    'M': '18432'
+    'J': '{wildcards.project}_{rule}_{wildcards.targets}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.targets}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.targets}.o'
+select_normal_sample:
+    'M': '18432'
+    'J': '{wildcards.sample}_{rule}_{wildcards.targets}'
+    'eo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.targets}.e'
+    'oo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.targets}.o'

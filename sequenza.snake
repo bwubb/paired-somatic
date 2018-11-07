@@ -1,78 +1,82 @@
 
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
 
-from snakemake.utils import R
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+if config.get('project',{}).get('bam_list',False):
+    with open(config['project']['bam_list'],'r') as b:
+        BAMS=dict(line.split('\t') for line in b.read().splitlines())
+        
 
 
+def sample_bam(wildcards):
+    if getattr(wildcards,'tumor',False):
+        name=wildcards.tumor
+    elif getattr(wildcards,'normal',False):
+        name=wildcards.normal
+    else:
+        name=wildcards.sample
+    if config['project'].get('bam_list',False):
+        return BAMS[name]
+    return 'bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=name,reference=config['resources']['reference']['key'])
 
+def paired_pileup(wildcards):
+    targets=config['resources']['library']['targets_key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':'data/work/{tumor}/{targets}/sequenza/raw.mpileup'.format(tumor=tumor,targets=targets),'normal':'data/work/{normal}/{targets}/sequenza/raw.mpileup'.format(normal=normal,targets=targets)}
 
+rule all:
+    input:
+        expand("data/work/{tumor}/{targets}/sequenza/{tumor}_segments.txt",tumor=PAIRS.keys(),targets=config['resources']['reference']['key'])
 
+rule raw_mpileup:
+    input:
+        sample_bam
+    output:
+        "data/work/{sample}/{targets}/sequenza/raw.mpileup"
+    params:
+        ref=config['resources']['reference']['fasta']
+    shell:
+        "samtools mpileup -A -B -R -o {output} -f {params.ref} -Q 20 {input}"
+        #What does -B do, remove BAQ but will it work for sequenza still?
+        #-B recommended for VarScan
+        #-R --ignore-RG         ignore RG tags (one BAM = one sample)
 
-
-rule make_fifo:
-	input:
-	output:
-		"sequenza/{sample}/chr{chr}/normal.fofo",
-		"sequenza/{sample}/chr{chr}/normal.fofo"
-	shell:
-		"mkfifo {output}"
-
-rule mpileup:
-	input:
-		#"sequenza/{sample}/chr{chr}/{genre}.fofo"
-	params:
-		ref="/home/bwubb/ref.fa",#load ref from config file
-		bam="bam_input/final/{genre}/{genre}.ready.bam"
-	output:
-		#touch("sequenza/{sample}/chr{chr}/{genre}.mpileup")
-		"sequenza/{sample}/chr{chr}/{genre}.mpileup"
-	shell:
-		#"samtools view -b {params.bam} {chr} | samtools mpileup -f {params.ref} -Q 20 - > {input}"
-		"samtools view -b {params.bam} {chr} | samtools mpileup -f {params.ref} -Q 20 - > {output}"
-
-rule pileup2seqz:
-	input:
-		"sequenza/{sample}/chr{chr}/tumor.mpileup",
-		"sequenza/{sample}/chr{chr}/normal.mpileup"
-	params:
-		gc="/home/bwubb/GRCh38_GDC/GRCh38.d1.vd1.gc50Base.txt.gz"#FIX#
-	output:
-		"sequenza/{sample}/chr{chr}/seqz.gz"
-	shell:
-		#"sequenza-utils.py pileup2seqz -gc $gc -n normal.fifo -t tumor.fifo | gzip > {output}
-		"sequenza-utils.py pileup2seqz -gc $gc -n {input[1]} -t {input[0]} | gzip > {output}"
-
-def my_seqz_files(wildcards):
-	chromosomes=[str(c) for c in tuple(range(1,23))] + ['X']
-	return ['sequenza/{wildcards.sample}/chr{chr}/seqz.gz'.format(wilcards=wildcards,chr=c) for c in chromosomes]
-	
-rule make_seqz:
-	input:
-		my_seqz_files
-	output:
-		"sequenza/{sample}/seqz.gz"
-	shell:
-		"zcat {input} | gzip > {output}"
+rule bam2seqz:
+    input:
+        unpack(paired_pileup)
+    params:
+        gc="$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"#different file for tcga Homo_sapien_assembly19
+    output:
+        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
+    shell:
+        #"sequenza-utils.py pileup2seqz -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+        "sequenza-utils bam2seqz --pileup -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
 
 rule seqz_bin:
-	input:
-		"sequenza/{sample}/seqz.gz"
-	output:
-		"sequenza/{sample}/seqz.small.gz"
-	shell:
-		"sequenza-utils.py seqz-binning -w 50 -a {input} | gzip > {output}"
-		#50 for exome 200 for genome
+    input:
+        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
+    output:
+        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
+    params:
+        bin=50
+        #50 for exome 200 for genome
+    shell:
+        #"sequenza-utils.py seqz-binning -w {params.bin} -a {input} | gzip > {output}"
+        "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
 
-rule extract:
-	input:
-		"sequenza/{sample}/seqz.small.gz"
-	params:
-		outdir="sequenza/{sample}/results",id="{sample}"
-	output:
-	run:
-		R("""
-		library(sequenza)
-		data.file <- "{{input}}"
-		tumor <- sequenza.extract(data.file)
-		CP <- sequenza.fit(tumor, mc.cores = {})\n'.format(cores))
-		sequenza.results(sequenza.extract = tumor, cp.table = CP, sample.id = "{params.id}", out.dir = "{params.outdir}")
-		""")
+rule seqz_extract:
+    input:
+        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
+    output:#rename
+        "data/work/{tumor}/{targets}/sequenza/{tumor}_confints_CP.txt",
+        "data/work/{tumor}/{targets}/sequenza/{tumor}_segments.txt"
+    params:
+        outdir="data/work/{tumor}/{targets}/sequenza"
+    threads:
+        4
+    script:
+        "sequenza-snakemake.R"

@@ -68,6 +68,7 @@ rule seqz_bin:
         #"sequenza-utils.py seqz-binning -w {params.bin} -a {input} | gzip > {output}"
         "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
 
+#need to remove Y MT M
 rule seqz_extract:
     input:
         "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"

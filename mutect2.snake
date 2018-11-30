@@ -1,8 +1,69 @@
+import errno
+import os
 
 
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno==errno.EEXIST and os.path.isdir(path):
+            pass
+
+#sample_list in config, default is samples.list
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
+
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+#checking for bams:
+
+for sample in SAMPLES:
+    mkdir_p('logs/cluster/%s' % sample)
+
+if config['project'].get('bam_list',False):
+    with open(config['project']['bam_list'],'r') as b:
+        BAMS=dict(line.split('\t') for line in b.read().splitlines())
+else:
+    BAMS=False
+    missing_bam=0
+    for sample in SAMPLES:
+        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
+            print('WARNING: < %s > Missing BAM!' % sample)
+            missing_bam+=1
+        if missing_bam>0:
+            raise
+if os.path.isfile('true_names.list'):
+    with open('true_names.list','r') as n:
+       NAMES=dict(line.split('\t') for line in n.read().splitlines())
+else:
+    NAMES=False
+
+def paired_bams(wildcards):
+    ref=config['resources']['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    if config['project'].get('bam_list',False):
+        return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
+    else:
+        return {'tumor':'bam_input/final/{tumor}/{ref}/{tumor}.ready.bam'.format(tumor=tumor,ref=ref),'normal':'bam_input/final/{normal}/{ref}/{normal}.ready.bam'.format(normal=normal,ref=ref)}
+
+def true_name(name):
+    if NAMES:
+        return NAMES[name]
+    else:
+        return name
+        
+            
 
 
+rule all:
+    input:
+        expand("data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
 
+rule raw_calls:
+    input:
+        expand("data/work/{tumor}/{targets}/mutect/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
 
 rule MuTect2:
     input:
@@ -16,13 +77,13 @@ rule MuTect2:
         #cosmic='/home/bwubb/resources/Vcf_files/CosmicCodingMuts_v69_b37.vcf',
         intervals=config['resources']['library']['targets_intervals'],
         memory='16g',
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor]
+        tumor=lambda wildcards: true_name(wildcards.tumor),
+        normal=lambda wildcards: true_name(PAIRS[wildcards.tumor])
     shell:
         """
         gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw}
-        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -select-type SNP
-        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -select-type INDEL
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -L {params.intervals} -select-type SNP
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -L {params.intervals} -select-type INDEL
         """
 #If GRCh38 consider adding --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter, see documentation for details
 rule CalculateContamination:
@@ -34,10 +95,11 @@ rule CalculateContamination:
         #metrics?
     params:
         #allele=config['resources']['library']['gnomad.vcf']#could infer if I forget to place it, or I could have it made if it doesnt exist
-        allele="$HOME/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.S07604715.common_biallelic_snps.simplified.vcf.gz"
+        allele=lambda wildcards: f"$HOME/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.{wildcards.targets}.common_biallelic_snps.simplified.vcf.gz",
+        intervals=config['resources']['library']['targets_intervals']
     shell:
         """
-        gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -O {output.pileup}
+        gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -L {params.intervals} -O {output.pileup}
         gatk CalculateContamination -I {output.pileup} -O {output.contamination}
         """
 

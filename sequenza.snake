@@ -23,7 +23,8 @@ def sample_bam(wildcards):
     return 'bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=name,reference=config['resources']['reference']['key'])
 
 def paired_pileup(wildcards):
-    targets=config['resources']['library']['targets_key']
+    #targets=config['resources']['library']['targets_key']
+    targets=config['resources']['reference']['key']
     tumor=wildcards.tumor
     normal=PAIRS[wildcards.tumor]
     return {'tumor':'data/work/{tumor}/{targets}/sequenza/raw.mpileup'.format(tumor=tumor,targets=targets),'normal':'data/work/{normal}/{targets}/sequenza/raw.mpileup'.format(normal=normal,targets=targets)}

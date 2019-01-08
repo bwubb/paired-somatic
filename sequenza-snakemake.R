@@ -1,4 +1,7 @@
-
+############################
+#Brad Wubbenhorst
+#bwubb@pennmedicine.upenn.edu
+#Dec. 2018
 
 library(sequenza)
 tumor<-sequenza.extract(snakemake@input[[1]])

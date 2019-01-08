@@ -1,0 +1,80 @@
+import math
+
+with open(config.get('project',{}).get('normal_list','normals.list'),'r') as infile:
+    SAMPLES=infile.read().splitlines()
+
+#This merely determines the output needed and names them
+cohort_num=math.ceil(len(SAMPLES)/100)
+if len(SAMPLES)%100<40:
+    cohort_num-=1
+
+def bam_input(wildcards):
+    if config.get('bams_list',False):
+        return BAMS[wildcards.sample]
+    else:
+        return "bam_input/final/{sample}/{reference}/{sample}.ready.bam".format(sample=wildcards.sample,reference=config['resources']['reference']['key'])
+
+def gvcf_input(wildcards):
+    return ' '.join([f'-V data/work/{sample}/gatk/haplotype.g.vcf.gz' for sample in SAMPLES])
+
+def cohort_gvcf_input(wildcards):
+    return ' '.join([f"-V data/work/{wildcards.project}/gatk/cohort{n}.haplotype.g.vcf.gz" for n in range(1,cohort_num+1)])
+
+def chr_gvcf(wildcards):
+    return expand("data/work/{sample}/gatk/chr{chr}.g.vcf.gz",sample=SAMPLES,chr=wildcards.chr)
+
+def chr_cohort(wildcards):
+    return [f"data/work/{wildcards.project}/gatk/cohort{n}_chr{wildcards.chr}.g.vcf.gz" for n in range(1,cohort_num+1)]
+
+localrules: all
+
+wildcard_constraints:
+    chr="[0-9]{1,2}|[X-Y]{1}"
+
+rule all:
+    input:
+        expand("data/work/{project}/gatk/haplotype.chr{chr}.vcf.gz",project=config['project']['name'],chr=list(range(1,23))+['X'])
+
+rule HaplotypeCaller_byChr:
+    input:
+        bam_input
+    output:
+        "data/work/{sample}/gatk/chr{chr}.g.vcf.gz"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        chr=lambda wildcards: wildcards.chr
+    shell:
+        "java -Xmx10g -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T HaplotypeCaller -I {input} -L {params.chr} --emitRefConfidence GVCF -o {output} -G Standard -G AS_Standard"
+
+rule Make_Cohorts_byChr:
+    input:
+        chr_gvcf
+    output:
+        "data/work/{project}/gatk/cohort{n}_chr{chr}.list"
+    script:
+        "make_cohorts.py"
+
+rule CombineGVCFs_Cohorts_byChr:
+    input:
+        "data/work/{project}/gatk/cohort{n}_chr{chr}.list"
+    output:
+        "data/work/{project}/gatk/cohort{n}_chr{chr}.g.vcf.gz"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        #variants=gvcf_input,
+        memory='32g'
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T CombineGVCFs -V {input} -o {output}"
+
+rule GenotypeGVCFs_byChr:
+    input:
+        chr_cohort
+    output:
+        "data/work/{project}/gatk/haplotype.chr{chr}.vcf.gz"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        memory='32g'
+    run:
+        #Could also use unsorted input
+        GVCFS=[f'-V {i}' for i in input]
+        shell(f"java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T GenotypeGVCFs {' '.join(GVCFS)} --disable_auto_index_creation_and_locking_when_reading_rods -o {output}")

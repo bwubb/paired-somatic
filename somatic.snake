@@ -157,10 +157,11 @@ rule CalculateContamination:
         #metrics?
     params:
         #allele=config['resources']['library']['gnomad.vcf']#could infer if I forget to place it, or I could have it made if it doesnt exist
-        allele="$HOME/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.S07604715.common_biallelic_snps.simplified.vcf.gz"
+        allele="$HOME/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.S07604715.common_biallelic_snps.simplified.vcf.gz",
+        intervals=config['resources']['library']['targets_intervals']
     shell:
         """
-        gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -O {output.pileup}
+        gatk GetPileupSummaries -I {input.tumor} -L {params.intervals} -V {params.allele} -O {output.pileup}
         gatk CalculateContamination -I {output.pileup} -O {output.contamination}
         """
 

@@ -42,7 +42,7 @@ gc_qc<-ref_qc$gc
 write.csv(gc_qc,file=paste(projectname,'gc_qc.csv',sep='/'),quote=FALSE)
 
 #write.table(qcmat,file=paste(projectname,'qcmat.csv',sep='/'),sep='',quote=FALSE,row.names=FALSE)
-write.csv(qcmat,file=paste(projectname,'qcmat.csv',sep='/')quote=FALSE,row.names=FALSE)
+write.csv(qcmat,file=paste(projectname,'qcmat.csv',sep='/'),quote=FALSE,row.names=FALSE)
 
 Y.nonzero<-Y_qc[apply(Y_qc,1,function(x){!any(x==0)}),]
 pseudo.sample<-apply(Y.nonzero,1,function(x){prod(x)^(1/length(x))})

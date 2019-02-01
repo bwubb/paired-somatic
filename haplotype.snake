@@ -1,18 +1,19 @@
 import math
 
-with open(config.get('project',{}).get('normal_list','normals.list'),'r') as infile:
+with open(config['project']['normal_list'],'r') as infile:
     SAMPLES=infile.read().splitlines()
+
+with open(config['project']['bam_list'],'r') as b:
+    BAMS=dict(line.split('\t') for line in b.read().splitlines())
+    #print(BAMS)
 
 #This merely determines the output needed and names them
 cohort_num=math.ceil(len(SAMPLES)/100)
-if len(SAMPLES)%100<40:
+if len(SAMPLES)%100<40 and cohort_num>1:
     cohort_num-=1
 
 def bam_input(wildcards):
-    if config.get('bams_list',False):
-        return BAMS[wildcards.sample]
-    else:
-        return "bam_input/final/{sample}/{reference}/{sample}.ready.bam".format(sample=wildcards.sample,reference=config['resources']['reference']['key'])
+    return BAMS[wildcards.sample]
 
 def gvcf_input(wildcards):
     return ' '.join([f'-V data/work/{sample}/gatk/haplotype.g.vcf.gz' for sample in SAMPLES])
@@ -26,6 +27,9 @@ def chr_gvcf(wildcards):
 def chr_cohort(wildcards):
     return [f"data/work/{wildcards.project}/gatk/cohort{n}_chr{wildcards.chr}.g.vcf.gz" for n in range(1,cohort_num+1)]
 
+def vcf_input(wildcards):
+    return ["data/work/{wildcards.project}/gatk/haplotype.chr{chr}.vcf.gz" for chr in list(range(1,23))+['X']]
+
 localrules: all
 
 wildcard_constraints:
@@ -34,6 +38,10 @@ wildcard_constraints:
 rule all:
     input:
         expand("data/work/{project}/gatk/haplotype.chr{chr}.vcf.gz",project=config['project']['name'],chr=list(range(1,23))+['X'])
+
+rule vqsr:
+    input:
+        "data/work/{config['project']['name']}/gatk/haplotype.vqsr-snps_indels.vcf.gz"
 
 rule HaplotypeCaller_byChr:
     input:
@@ -78,3 +86,102 @@ rule GenotypeGVCFs_byChr:
         #Could also use unsorted input
         GVCFS=[f'-V {i}' for i in input]
         shell(f"java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T GenotypeGVCFs {' '.join(GVCFS)} --disable_auto_index_creation_and_locking_when_reading_rods -o {output}")
+
+rule Concat_GenotypedVCFs:
+    input:
+        vcf_input
+    output:
+        "data/work/{project}/gatk/haplotype.raw.vcf.gz"
+    shell:
+        """
+        bcftools concat -O z -o {output} {input}
+        tabix -p vcf {output}
+        """
+
+rule VQSR_snp_model:
+    input:
+        "data/work/{project}/gatk/haplotype.raw.vcf.gz"
+    output:
+        recalFile="data/work/{project}/gatk/snps.recal",
+        tranchesFile="data/work/{project}/gatk/snps.tranches",
+        rscriptFile="data/work/{project}/gatk/snps.R"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        hapmap="/home/bwubb/resources/gatk/hapmap_3.3.b37.sites.vcf",
+        omni="/home/bwubb/resources/gatk/1000G_omni2.5.b37.sites.vcf",
+        _1000G="/home/bwubb/resources/gatk/1000G_phase1.snps.high_confidence.b37.vcf",
+        dbsnp="/home/bwubb/resources/gatk/dbsnp_137.b37.vcf",
+        memory='10240m'
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T VariantRecalibrator -input {input} "
+        "-recalFile {output.recalFile} -tranchesFile {output.tranchesFile} -rscriptFile {output.rscriptFile} "
+        "--resource:hapmap,known=false,training=true,truth=true,prior=15.0 {params.hapmap} "
+        "--resource:omni,known=false,training=true,truth=true,prior=12.0 {params.omni} "
+        "--resource:1000G,known=false,training=true,truth=false,prior=10.0 {params._1000G} "
+        "--resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {params.dbsnp} "
+        "-an QD -an MQRankSum -an ReadPosRankSum -an FS -an SOR -an DP -an InbreedingCoeff "
+        "-mode SNP -titv 3.0 "
+        "-tranche 100.0 -tranche 99.9 -tranche 99.5 "
+        "-tranche 99.3 -tranche 99.0 -tranche 98.9 "
+        "-tranche 98.8 -tranche 98.6 -tranche 98.5 "
+        "-tranche 98.3 -tranche 98.2 -tranche 98.1 "
+        "-tranche 98.0 -tranche 97.9 -tranche 97.8 "
+        "-tranche 97.5 -tranche 97.0 -tranche 95.0 "
+        "-tranche 90.0"
+
+rule VQSR_indel_model:
+    input:
+        "data/work/{project}/gatk/haplotype.raw.vcf.gz"
+    output:
+        recalFile="data/work/{project}/gatk/indels.recal",
+        tranchesFile="data/work/{project}/gatk/indels.tranches",
+        rscriptFile="data/work/{project}/gatk/indels.R"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        mills="/home/bwubb/resources/gatk/Mills_and_1000G_gold_standard.indels.b37.sites.vcf",
+        dbsnp="/home/bwubb/resources/gatk/dbsnp_137.b37.vcf",
+        memory='10240m'
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T VariantRecalibrator -input {input} "
+        "-recalFile {output.recalFile} -tranchesFile {output.tranchesFile} -rscriptFile {output.rscriptFile} "
+        "--resource:mills,known=false,training=true,truth=true,prior=12.0 {params.mills} "
+        "--resource:dbsnp,known=true,training=false,truth=false,prior=2.0 {params.dbsnp} "
+        "-an FS -an SOR -an QD -an MQRankSum -an ReadPosRankSum -an InbreedingCoeff "
+        "-mode INDEL "
+        "-tranche 100.0 -tranche 99.9 -tranche 99.5 "
+        "-tranche 99.3 -tranche 99.0 -tranche 98.9 "
+        "-tranche 98.8 -tranche 98.6 -tranche 98.5 "
+        "-tranche 98.3 -tranche 98.2 -tranche 98.1 "
+        "-tranche 98.0 -tranche 97.9 -tranche 97.8 "
+        "-tranche 97.5 -tranche 97.0 -tranche 95.0 "
+        "-tranche 90.0"
+
+rule Apply_snp_model:
+    input:
+        vcf="data/work/{project}/gatk/haplotype.raw.vcf.gz",
+        recalFile=recalFile="data/work/{project}/gatk/snps.recal",
+        tranchesFile="data/work/{project}/gatk/snps.tranches"
+    output:
+        "data/work/{project}/gatk/haplotype.vqsr-snps.raw-indels.vcf.gz"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        memory='10240m',
+        filter_level='99.6'
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T ApplyRecalibration "
+        "-recalFile {input.recalFile} -tranchesFile {input.tranchesFile} -input {input.vcf} --ts_filter_level {params.filter_level} -mode SNP -o {output}"
+
+rule Apply_indel_model:
+    input:
+        vcf="data/work/{project}/gatk/haplotype.vqsr-snps.raw-indels.vcf.gz",
+        recalFile="data/work/{project}/gatk/indels.recal",
+        tranchesFile="data/work/{project}/gatk/indels.tranches"
+    output:
+        "data/work/{project}/gatk/haplotype.vqsr-snps_indels.vcf.gz"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        memory='10240m',
+        filter_level='97.0'
+    shell:
+        "java -Xmx{params.memory} -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T ApplyRecalibration "
+        "-recalFile {input.recalFile} -tranchesFile {input.tranchesFile} -input {input.vcf} --ts_filter_level {params.filter_level} -mode INDEL -o {output}"

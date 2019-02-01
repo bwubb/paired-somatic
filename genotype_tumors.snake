@@ -40,12 +40,15 @@ rule Select_Germline_byChr_Targets:
         "data/work/{sample}/{targets}/gatk/haplotype.chr{chr}.non-ref.vcf.gz"
     params:
         bed=config['resources']['library']['targets_bed'],
-        sample=lambda wildcards: wildcards.sample
+        #bed=config['resources']['library']['targets_intervals'],
+        sample=lambda wildcards: wildcards.sample,
+        reference=config['resources']['reference']['fasta']
     shell:
         #-U exclude sites without a called genotype
         #-a trim alternate alleles not seen in subset. Type A, G and R INFO and FORMAT fields will also be trimmed 
-        #-x print sites where only the subset samples carry an non-reference allele
-        "bcftools view -Uax -T {params.bed} -s {params.sample} -O z -o {output} {input} && tabix -p vcf {output}"
+        #-x select/exclude sites where the non-reference alleles are exclusive (private) to the subset samples
+        "bcftools view -Ua -T {params.bed} -s {params.sample} -e \"ALT=='*' || ALT=='.'\" -O z -o {output} {input} && tabix -p vcf {output}"
+        #"java -Xmx10g -jar $HOME/software/GenomeAnalysisTK-3.7/GenomeAnalysisTK.jar -R {params.reference} -T SelectVariants -V {input} -L {params.bed} -sn {params.sample} -env  -trimAlternates --selectTypeToExclude SYMBOLIC -o {output}"
 
 rule HaplotypeCaller_byChr_GermlineSites:
     input:

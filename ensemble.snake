@@ -1,0 +1,24 @@
+
+
+
+rule somatic_bcftools_isec:
+    input:
+        mutect="data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz",
+        strelka="data/work/{tumor}/{targets}/strelka/somatic.raw.vcf.gz",
+        vardict="data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",
+        varscan="data/work/{tumor}/{targets}/varscan/somatic.fpfilter.vcf.gz"
+    output:
+        "data/work/{tumor}/{targets}/concordant/somatic_sites.txt"
+    shell:
+        "bcftools isec -n +2 -f PASS {input.mutect} {input.strelka} {input.vardict} {input.varscan} > {output}"
+
+rule format_mutect2
+
+rule format_strelka2
+    script:
+        "reformat_vcf.py -I {input} -c strelka2"
+
+rule format_vardict
+
+rule format_varscan2
+

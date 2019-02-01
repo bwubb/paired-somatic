@@ -1,61 +1,7 @@
 
 library(CODEX2)
 
-#args = commandArgs(trailingOnly=TRUE)
 
-#normal_bams<-read.table("normal_bams.list")
-#tumor_bams<-read.table("tumor_bams.list")
-normal_bams=snakemake@input[['normals']]
-tumor_bams=snakemake@input[['tumors']]
-
-all_bams<-as.character(rbind(normal_bams,tumor_bams)$V1)
-head(all_bams)
-tail(all_Bams)
-
-sampname<-gsub(".ready.bam","",basename(all_bams))
-bedFile<-snakemake@params[['bed']]
-
-#Replace bamdir with all bams
-bambedObj<-getbambed(bamdir=all_bams,bedFile=bedFile,sampname=sampname,projectname="tumor_normal")
-bamdir<-bambedObj$bamdir
-sampname<-bambedObj$sampname
-ref<-bambedObj$ref
-projectname<-bambedObj$projectname
-
-#OR SNAKEMAKE
-#Have to provide a list of tumor files and a list of normal files
-#Follow Yuchao's bullshit with the combined list being bamFile
-#get index of normals
-#bambedObj <- getbambed(bamdir = snakemake@params[[]], bedFile = bedFile, sampname = sampname, projectname = '')
-
-
-##Getting GC content and mappability
-#Obtain GC contents for each exon/target/window.
-#gc<-getgc(ref)
-#mapp<-getmapp(ref)
-#values(ref)<-cbind(values(ref),DataFrame("gc"=gc,"mapp"=mapp))
-
-#coverageObj <- getcoverage(bambedObj, mapqthres = 20)
-#Y <- coverageObj$Y
-#write.csv(Y, file = paste(projectname, '_coverage.csv', sep=''), quote = FALSE)
-
-##Quality control
-#qcObj <- qc(Y, sampname, ref, cov_thresh = c(20, 4000),length_thresh = c(20, 2000), mapp_thresh = 0.9,gc_thresh = c(20, 80))
-#Y_qc<-qcObj$Y_qc
-#write.csv(Y_qc,file=paste(projectname,'_coverageQC.csv',sep=''),quote=FALSE)
-
-#Estimate library size factor based on genome-wide read depth after QC.
-#Y.nonzero<-Y_qc[apply(Y_qc,1,function(x){!any(x==0)}),]
-#pseudo.sample<-apply(Y.nonzero,1,function(x){prod(x)^(1/length(x))})
-#N<-apply(apply(Y.nonzero,2,function(x){x/pseudo.sample}),2,median)
-#write.csv(N,file=paste(projectname,'_N','.csv',sep=''),quote=FALSE,row.names=FALSE)
-
-#sampname_qc<-qcObj$sampname_qc
-#ref_qc<-qcObj$ref_qc
-#qcmat<-qcObj$qcmat
-#gc_qc<-ref_qc$gc
-#write.csv(gc_qc,file=paste(projectname,'_gc_qc.csv',sep=''),quote=FALSE)
-#write.table(qcmat,file=paste(projectname,'_qcmat','.txt',sep=''),sep='\t',quote=FALSE,row.names=FALSE)
 
 ### Running CODEX2 with Negative Control Samples###
 

@@ -40,3 +40,28 @@ Concat_Isec_Merge:
     'Job': '{wildcards.tumor}_{rule}'
     'eo': 'logs/cluster/{wildcards.tumor}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.tumor}/{rule}.o'
+Concat_GenotypedVCFs:
+    'Mem': '12288'
+    'Job': '{wildcards.project}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}.o'
+VQSR_snp_model:
+    'Mem': '12288'
+    'Job': '{wildcards.project}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}.o'
+VQSR_indel_model:
+    'Mem': '12288'
+    'Job': '{wildcards.project}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}.o'
+Apply_snp_model:
+    'Mem': '12288'
+    'Job': '{wildcards.project}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}.o'
+Apply_indel_model:
+    'Mem': '12288'
+    'Job': '{wildcards.project}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}.o'

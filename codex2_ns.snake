@@ -41,7 +41,8 @@ rule CODEX2_ns:
     output:
         "data/work/{project}/codex2/{chr}.codex2.filtered_segments.txt"
     params:
+        project="data/work/{project}/codex2",
         chr=lambda wildcards: wildcards.chr,
-        normals="normals.list"
+        normals=
     script:
-        "wes.codex2_ns.snakemake.R"
+        "codex2_paired_runChr.snakemake.R"

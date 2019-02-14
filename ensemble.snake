@@ -1,6 +1,6 @@
 
 
-
+#High confidence=n2pass
 rule somatic_bcftools_isec:
     input:
         mutect="data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz",
@@ -22,3 +22,4 @@ rule format_vardict
 
 rule format_varscan2
 
+#Low confidence = n1 pass where others where filtered out in ... include PASS private?

@@ -51,7 +51,7 @@ rule table_annovar:
     params:
         out="data/work/{sample}/{targets}/{caller}.pass",
         humandb="/home/bwubb/humandb",
-        protocol="refGene,cytoband,gwasCatalog,genomicSuperDups,dbnsfp31a_interpro,dbscsnv11,dbnsfp30a,snp138,snp138NonFlagged,cosmic70,popfreq_all_20150413,exac03nontcga,nci60,clinvar_20160302",
+        protocol="efGene,cytoband,gwasCatalog,genomicSuperDups,dbscsnv11,dbnsfp33a,popfreq_max_20150413,exac03,exac03nontcga,gnomad_exome,avsnp150,cosmic84_coding,cosmic84_noncoding,clinvar_20180603",
         operation="g,r,r,r,f,f,f,f,f,f,f,f,f,f"
     output:
         "data/work/{sample}/{targets}/{caller}.pass.hg19_multianno.txt"

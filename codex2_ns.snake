@@ -1,4 +1,5 @@
 import errno
+import os
 
 def mkdir_p(path):
     try:
@@ -29,7 +30,7 @@ rule CODEX2_CoverageQC:
         N="data/work/{project}/codex2/library_size_factor.csv"
     params:
         project="data/work/{project}/codex2",
-        bed=config['resources']['library']['targets_bed']
+        bed=os.path.abspath(config['resources']['library']['targets_bed'])
     script:
         "codex2_paired_getCoverage.snakemake.R"
 
@@ -43,6 +44,6 @@ rule CODEX2_ns:
     params:
         project="data/work/{project}/codex2",
         chr=lambda wildcards: wildcards.chr,
-        normals=
+        normals=''
     script:
         "codex2_paired_runChr.snakemake.R"

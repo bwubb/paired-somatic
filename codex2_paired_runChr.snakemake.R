@@ -1,24 +1,34 @@
 
 library(CODEX2)
 
-
+#normal_samples<-read.table(file=snakemake@params[['normals']])
+#projectname<-snakemake@params[['project']]
+normal_samples<-read.table(file='normals.list')
+projectname<-'data/work/BasserExome_S07604715/codex2'
+chr<-'1'
+bedFile<-'/home/bwubb/resources/Bed_files/SureSelect-Exon_v6+COSMIC.S07604715.Covered.bed'
+exomtarg <- read.table(bedFile, sep = "\t")
+ref <- GRanges(seqnames=exomtarg[,1],ranges=IRanges(start=exomtarg[,2], end=exomtarg[,3]))
+ref <- sort(ref)
 
 ### Running CODEX2 with Negative Control Samples###
 
-Y_qc <- read.csv(paste(projectname,'codex2_coverageQC.csv',sep='/'),row.names=1,check.names=FALSE)
+Y_qc <- read.csv(paste(projectname,'coverageQC.csv',sep='/'),row.names=1,check.names=FALSE)
 Y_qc<-as.matrix(Y_qc)
 message("nrow of Y_qc ", nrow(Y_qc))
 
-qcmat<-read.table(file=paste(projectname,'codex2_qcmat.',sep='/'),sep='\t',header=TRUE)
+qcmat<-read.csv(file=paste(projectname,'qcmat.csv',sep='/'),header=TRUE)
+#restrict chr here at qcmat
 ind<-qcmat$pass==TRUE
 ref_qc<-ref[ind]
 message('Size of ref_qc ', length(ref_qc))
 #names?
 
+#I need to restrict to chr
 gc<-getgc(ref_qc)
 mapp<-getmapp(ref_qc)
 values(ref_qc)<-cbind(values(ref_qc), DataFrame(gc, mapp))
-gc_qc<-read.csv(paste(projectname,'codex2_gc_qc.csv',sep='/'),row.names=1,check.names=FALSE)
+gc_qc<-read.csv(paste(projectname,'gc_qc.csv',sep='/'),row.names=1,check.names=FALSE)
 gc_qc<-as.numeric(gc_qc[,'x'])
 message('Length of gc_qc ', length(gc_qc))
 
@@ -26,18 +36,19 @@ N<-read.csv(paste(projectname,'library_size_factor.csv',sep='/'))
 N<-as.numeric(N[,'x'])
 
 ###break###
-norm_index<-which(colnames(Y_qc) %in% gsub(".ready.bam","",basename(as.character(normal_bams$V1))))
+norm_index<-which(colnames(Y_qc) %in% normal_samples$V1)
 
 sampname_qc<-colnames(Y_qc)
 
 #chr<-args[1]
-chr<-snakemake.params[["chr"]]
+#chr<-snakemake.params[["chr"]]
 message("chr",chr)
 
+#If chr is pre-subset then this subsetting will change
 chr.index<-which(seqnames(ref_qc)==chr)
 message('Length of chr.index ', length(chr.index))
 
-message('Length of gc_qc[chr.index] ,' gc_qc[chr.index])
+message('Length of gc_qc[chr.index] ', length(gc_qc[chr.index]))
 
 message('nrow of Y_qc[chr.index,] ', nrow(Y_qc[chr.index,]))
 
@@ -68,7 +79,8 @@ message('optK ',optK)
 
 #In segmentation step, use "fraction" mode for somatic CNA detection (cancer is heterogenous)
 finalcall.CBS<-segmentCBS(Y_qc[chr.index,],Yhat.ns,optK=which.max(BIC.ns),K=1:10,sampname_qc=sampname_qc,ref_qc=ranges(ref_qc),chr=chr,lmax=400,mode="fraction")
-write.table(finalcall.CBS,file=paste(projectname,'/codex2_chr',chr,'.K_',optK,'.segments.txt',sep=''),sep='\t',quote=FALSE,row.names=FALSE)
+message(paste('Opt K',optK,sep=' '))
+write.table(finalcall.CBS,file=paste(projectname,'/chr',chr,'.codex2.segments.txt',sep=''),sep='\t',quote=FALSE,row.names=FALSE)
 
 #Post-segmentation pruning and filtering are recommended based on CNV length (filter1), length per exon (filter2), likelihood ratio (filter3), and number of exons (filter4).
 
@@ -80,4 +92,4 @@ filter3<-finalcall.CBS.filter$lratio>40
 filter4<-(finalcall.CBS.filter$ed_exon-finalcall.CBS.filter$st_exon)>1
 finalcall.CBS.filter=finalcall.CBS.filter[filter3|filter4,]
 
-write.table(finalcall.CBS.filter,file=projectname,'/codex2_chr',chr,'.K_',optK,'.segments.filtered.txt',sep=''),sep='\t',quote=FALSE,row.names=FALSE)
+write.table(finalcall.CBS.filter,file=paste(projectname,'/chr',chr,'.codex2.segments.filtered.txt',sep=''),sep='\t',quote=FALSE,row.names=FALSE)

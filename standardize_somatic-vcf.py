@@ -1,5 +1,4 @@
-
-import sys
+import os
 import vcfpy
 import argparse
 from copy import copy
@@ -112,37 +111,44 @@ def check_FORMAT(FORMAT):
 def modify_outheader(outheader):
     info_lines={'CALLER':vcfpy.OrderedDict([('ID','CALLER'),('Number','1'),('Type','String'),('Description','Variant Call method')]),
     'SS':vcfpy.OrderedDict([('ID','SS'),('Number','1'),('Type','String'),('Description','Somatic Status from respective Call Method')]),
-    'OFS':vcfpy.OrderedDict([('ID','OFS'),('Number','1'),('Type','String'),('Description','Original FILTER State')])}
+    'OFS':vcfpy.OrderedDict([('ID','OFS'),('Number','.'),('Type','String'),('Description','Original FILTER State')])}
     #
     format_lines={'GT':vcfpy.OrderedDict([('ID','GT'),('Number','1'),('Type','String'),('Description','Genotype')]),
-    'AD':vcfpy.OrderedDict([('ID','AD'),('Number','.'),('Type','Integer'),('Description','Allele Depth')]),
-    'AAF':vcfpy.OrderedDict([('ID','AAF'),('Number','1'),('Type','Float'),('Description','Allele Frequency')])}
+    'AD':vcfpy.OrderedDict([('ID','AD'),('Number','R'),('Type','Integer'),('Description','Alt Allele Depth')]),
+    'AAF':vcfpy.OrderedDict([('ID','AAF'),('Number','1'),('Type','Float'),('Description','Alt Allele Frequency')])}
     #
     for i in info_lines.keys():
-        if not outheader.add_info_line(info_lines[i]):
-            outheader.get_info_field_info(i).mapping=info_lines[i]
+        if i not in outheader.info_ids():
+            outheader.add_info_line(info_lines[i])
         else:
-            pass
+            outheader.get_info_field_info(i).mapping.update(info_lines[i])
     for f in format_lines.keys():
-        if not outheader.add_format_line(format_lines[f]):
-            outheader.get_format_field_info(f).mapping=format_lines[f]
+        if f not in outheader.format_ids():
+            outheader.add_format_line(format_lines[f])
         else:
-            pass
+            outheader.get_format_field_info(f).mapping.update(format_lines[f])
     return outheader
 
+def make_outfile(infile):
+    dir,file=os.path.split(infile)
+    outfile="{0}.std.{1}".format(*file.rsplit('.',1))
+    return f"{dir}/{outfile}"
+
 def mutect2(infile,tumor,normal):
-    myvcf=vcfpy.Reader.from_path(f"0000.vcf")#argv.infile
+    myvcf=vcfpy.Reader.from_path(infile)#argv.infile
     myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
     myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
     #
     outheader=modify_outheader(myvcf.header.copy())
     outheader.samples.names=[tumor,normal]
-    writer=vcfpy.Writer.from_path(f"0000.std.vcf",outheader)#,vcfpy.Header(reader.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    outfile=make_outfile(infile)
+    writer=vcfpy.Writer.from_path(outfile,outheader)#,vcfpy.Header(reader.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     #
     for record in myvcf:
         outrecord=copy(record)
         E={'CALLER':'Mutect2'}
-        E['OFS']=f"{'%2C'.join(record.FILTER)}"
+        #E['OFS']=['%2C'.join(record.FILTER)]#%2C keeps becoming %252C %= %25
+        E['OFS']=record.FILTER
         if outrecord.FILTER!=['PASS']:
             E['SS']='REJECT'
             outrecord.FILTER=['.']
@@ -164,21 +170,24 @@ def mutect2(infile,tumor,normal):
             call.data['AAF']=float(f"{_aaf:.2f}")
             #print(call)
         writer.write_record(outrecord)
+        #print(outrecord.INFO)
 
 def strelka2(infile,tumor,normal):
-    myvcf=vcfpy.Reader.from_path(f"0001.vcf")#infile
+    myvcf=vcfpy.Reader.from_path(infile)#infile
     myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
     myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
     #
     outheader=modify_outheader(myvcf.header.copy())
     outheader.samples.names=[tumor,normal]
-    writer=vcfpy.Writer.from_path(f"0001.std.vcf",outheader)#,vcfpy.Header(reader.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    outfile=make_outfile(infile)
+    writer=vcfpy.Writer.from_path(outfile,outheader)#,vcfpy.Header(reader.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     #
     for record in myvcf:
         outrecord=copy(record)
         outrecord.FORMAT=check_FORMAT(outrecord.FORMAT)#Check if these items exist
         E={'CALLER':'Strelka2'}
-        E['OFS']=f"{'%2C'.join(record.FILTER)}"#I may be able to use comma if my header line is correct. Other programs might get upset.
+        #E['OFS']='%2C'.join(record.FILTER)#I may be able to use comma if my header line is correct. Other programs might get upset.
+        E['OFS']=record.FILTER
         if record.INFO.get('SOMATIC',False):#strelka
             E['SS']='SOMATIC'
         else:
@@ -199,15 +208,58 @@ def strelka2(infile,tumor,normal):
         outrecord.calls=_tumor_normal_allele_freqs(ref,alt,outrecord.calls)
         writer.write_record(outrecord)
 
-
-def varscan2(infile,tumor,normal):
-    myvcf=vcfpy.Reader.from_path(f"0003.vcf")#infile
+def vardict(infile,tumor,normal):
+    myvcf=vcfpy.Reader.from_path(infile)#infile
     myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
     myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
     #
     outheader=modify_outheader(myvcf.header.copy())
     outheader.samples.names=[tumor,normal]
-    writer=vcfpy.Writer.from_path(f"0003.std.vcf",outheader)#,vcfpy.Header(reader.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    outfile=make_outfile(infile)
+    writer=vcfpy.Writer.from_path(outfile,outheader)
+    #
+    for record in myvcf:
+        outrecord=copy(record)
+        E={'CALLER':'VarDictJava'}
+        #E['OFS']='%2C'.join(record.FILTER)
+        E['OFS']=record.FILTER
+        if not outrecord.INFO.get('STATUS','UNKNOWN') in ['LikelySomatic','Somatic']:
+            E['SS']=outrecord.INFO.get('STATUS','UNKNOWN').upper()
+        else:
+            E['SS']='SOMATIC'
+        outrecord.INFO.update(E)
+        outrecord.FORMAT=check_FORMAT(outrecord.FORMAT)
+        #check DP
+        #check AD
+        ref=outrecord.REF
+        alt=outrecord.ALT
+        info=outrecord.INFO
+        for call in outrecord.calls:
+            try:
+                used_depth=call.data['DP']
+                _aad=call.data.get('VD',0)#VD not AD for vardict
+                _aaf=float(_aad)/float(used_depth)
+                _rad=used_depth-_aad
+            except (ZeroDivisionError,TypeError) as e:
+                print(f'{e}: {ref} {alt[0].value} {call}')
+                _aad=0
+                _aaf=0.00
+                _rad=0
+            call.data['AAF']=float(f"{_aaf:.2f}")
+            call.data['AD']=[_rad,_aad]
+        if outrecord.FILTER!=['PASS']:
+            outrecord.FILTER=['.']
+        writer.write_record(outrecord)
+
+def varscan2(infile,tumor,normal):
+    myvcf=vcfpy.Reader.from_path(infile)#infile
+    myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
+    myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
+    #
+    outheader=modify_outheader(myvcf.header.copy())
+    outheader.samples.names=[tumor,normal]
+    outfile=make_outfile(infile)
+    writer=vcfpy.Writer.from_path(outfile,outheader)#,vcfpy.Header(reader.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     #
     for record in myvcf:
         outrecord=copy(record)
@@ -216,7 +268,8 @@ def varscan2(infile,tumor,normal):
         else:
             outrecord.INFO['SS']='SOMATIC'
         E={'CALLER':'VarScan2'}
-        E['OFS']=f"{'%2C'.join(record.FILTER)}"
+        #E['OFS']='%2C'.join(record.FILTER)
+        E['OFS']=record.FILTER
         outrecord.INFO.update(E)
         outrecord.FORMAT=check_FORMAT(outrecord.FORMAT)
         #check DP
@@ -241,58 +294,44 @@ def varscan2(infile,tumor,normal):
             outrecord.FILTER=['.']
         writer.write_record(outrecord)
 
-
-def vardict(infile,tumor,normal):
-    myvcf=vcfpy.Reader.from_path(f"0002.vcf")#infile
-    myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
-    myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
-    #
-    outheader=modify_outheader(myvcf.header.copy())
-    outheader.samples.names=[tumor,normal]
-    writer=vcfpy.Writer.from_path(f"0002.std.vcf",outheader)
-    #
-    for record in myvcf:
-        outrecord=copy(record)
-        E={'CALLER':'VarDictJava'}
-        E['OFS']=f"{'%2C'.join(record.FILTER)}"
-        if not outrecord.INFO.get('STATUS','UNKNOWN') in ['LikelySomatic','Somatic']:
-            E['SS']=outrecord.INFO.get('STATUS','UNKNOWN').upper()
-        else:
-            E['SS']='SOMATIC'
-        outrecord.INFO.update(E)
-        outrecord.FORMAT=check_FORMAT(outrecord.FORMAT)
-        #check DP
-        #check AD
-        ref=outrecord.REF
-        alt=outrecord.ALT
-        info=outrecord.INFO
-        for call in outrecord.calls:
-            try:
-                used_depth=call.data['DP']
-                _aad=call.data['VD']#VD not AD for vardict
-                _aaf=float(_aad)/float(used_depth)
-            except (ZeroDivisionError,TypeError) as e:
-                print(f'{e}: {ref} {alt[0].value} {call}')
-                _aad=0
-                _aaf=0.00
-            call.data['AAF']=float(f"{_aaf:.2f}")
-        if outrecord.FILTER!=['PASS']:
-            outrecord.FILTER=['.']
-        writer.write_record(outrecord)
-
-
-def main(argv=None):
-    tumor='6012-Brca2Ov6'
-    normal='6012-germline'
-    mutect2(argv.input,tumor,normal)
-    strelka2(argv.input,tumor,normal)
-    varscan2(argv.input,tumor,normal)
-    vardict(argv.input,tumor,normal)
+def main(argv=None):#NEED TO REMOVE ALL * Alts
+    tumor=argv.tumor
+    normal=argv.normal
+    lib=argv.lib
+    ### Mutect2 ###
+    if os.path.isfile(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz')
+        mutect2(input,tumor,normal)
+    else:
+        print('Could not locate',os.path.abspath(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz'))#need normalized
+    ### Strelka2 ###
+    if os.path.isfile(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz')
+        strelka2(input,tumor,normal)
+    else:
+        print('Could not locate',os.path.abspath(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz'))
+    ### Vardict ###
+    if os.path.isfile(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz')
+        vardict(input,tumor,normal)
+    else:
+        print('Could not locate',os.path.abspath(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz'))
+    ### VarScan2 ###
+    if os.path.isfile(f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz')
+        varscan2(input,tumor,normal)
+    else:
+        print('Could not locate',f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser()
-    p.add_argument('-I','--input',help='Input file')
-    p.add_argument('-c','--caller',help='Caller vcf to reformat')
+    p.add_argument('-T','--tumor',required=True,help='Tumor ID')
+    p.add_argument('-N','--normal',required=True,help='Normal ID')
+    p.add_argument('-L','--lib',required=True,help='Library ID')
     argv=p.parse_args()
     #if in snakemake I can write a --log argument to write run properties
     #--log might be built in

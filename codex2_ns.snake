@@ -30,7 +30,7 @@ rule CODEX2_CoverageQC:
         N="data/work/{project}/codex2/library_size_factor.csv"
     params:
         project="data/work/{project}/codex2",
-        bed=os.path.abspath(config['resources']['library']['targets_bed'])
+        bed=config['resources']['library']['targets_bed']
     script:
         "codex2_paired_getCoverage.snakemake.R"
 
@@ -40,10 +40,10 @@ rule CODEX2_ns:
         gc_qc="data/work/{project}/codex2/gc_qc.csv",
         N="data/work/{project}/codex2/library_size_factor.csv"
     output:
-        "data/work/{project}/codex2/{chr}.codex2.filtered_segments.txt"
+        "data/work/{project}/codex2/chr{chr}.codex2.filtered_segments.txt"
     params:
         project="data/work/{project}/codex2",
         chr=lambda wildcards: wildcards.chr,
-        normals=''
+        normals=config['project']['normal_list']
     script:
         "codex2_paired_runChr.snakemake.R"

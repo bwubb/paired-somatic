@@ -11,7 +11,7 @@ from collections import defaultdict
 #merge records
 #write record
 
-def set_build_call(data,sample):
+def set_build_calls(data,sample):
     temp_GT=[x['GT'] for x in data]
     _DP=max([x['DP'] for x in data])
     _AD=max([x['AD'] for x in data])
@@ -23,21 +23,13 @@ def set_build_call(data,sample):
         _GT=temp_GT[0]
     return vcfpy.Call(sample,vcfpy.OrderedDict([('GT',_GT),('DP',_DP),('AD',_AD),('AAF',_AAF)]))
 
-def format_my_info(some_var):
-    #list of lists
-    items=[]
-    for for x in some_var:
-        items.append(','.join(x))
-    return f'{"|".join(items)}'
-    
-
 
 def main(argv=None):
     tumor=argv.tumor
     normal=argv.normal
     lib=argv.lib
     
-    with vcfpy.Reader.from_path('/home/bwubb/resources/Vcf_files/ensemble-header.GRCh37.20190227.vcf') as _VCFH:
+    with vcfpy.Reader.from_path('/home/bwubb/resources/Vcf_files/ensemble-header.GRCh37.20190227_v2.vcf') as _VCFH:
         pass
     #Three writers
     #Need custom lines
@@ -46,9 +38,9 @@ def main(argv=None):
     #script version
     #then add header_line for tumor_sample and normal_sample
     #Add header line for ##reference=file:/home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta\n
-    high_conf_writer=vcfpy.Writer.from_path(f'data/work/{tumor}/{lib}/concordant_calls/somatic.high_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
-    low_conf_writer=vcfpy.Writer.from_path(f'data/work/{tumor}/{lib}/concordant_calls/somatic.low_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
-    failed_writer=vcfpy.Writer.from_path(f'data/work/{tumor}/{lib}/concordant_calls/somatic.failed_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    high_conf_writer=vcfpy.Writer.from_path(f'data/work/{tumor}/{lib}/concordant/somatic.high_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    low_conf_writer=vcfpy.Writer.from_path(f'data/work/{tumor}/{lib}/concordant/somatic.low_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    failed_writer=vcfpy.Writer.from_path(f'data/work/{tumor}/{lib}/concordant/somatic.failed_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     ####READERS####
     mutect_reader=vcfpy.Reader.from_path(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.std.vcf.gz')
     strelka_reader=vcfpy.Reader.from_path(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.std.vcf.gz')
@@ -58,7 +50,7 @@ def main(argv=None):
     reader_dict={0:{'reader':mutect_reader,'name':'mutect2'},1:{'reader':strelka_reader,'name':'strelka2'},2:{'reader':vardict_reader,'name':'vardict'},3:{'reader':varscan_reader,'name':'varscan2'}}
     #1101
     serialize=operator.methodcaller('serialize')
-    with open(f'data/work/{tumor}/{lib}/concordant_calls/sites.txt','r') as file:
+    with open(f'data/work/{tumor}/{lib}/concordant/sites.txt','r') as file:
         sites_reader=csv.DictReader(file,delimiter='\t',fieldnames=['CHROM','POS','REF','ALT','BIN'])
         for row in sites_reader:
             bin=list(row['BIN'])
@@ -79,14 +71,17 @@ def main(argv=None):
                         build['OFS']+=record.INFO['OFS']
                         #Check if calls exist and if any FORMAT if tumor DP is 0.
                         if build[tumor]==[]:
-                        for call in record.calls:
-                            data=vcfpy.OrderedDict([(k,call.data[k]) for k in FORMAT])
-                            build[call.sample]+=[data]
+                            for call in record.calls:
+                                data=vcfpy.OrderedDict([(k,call.data[k]) for k in FORMAT])
+                                build[call.sample]+=[data]
             else:#Always wanted to use else with for loop, Will likely switch to try, except though
                 ### INFO ###
                 INFO=vcfpy.OrderedDict([(caller,build.get(caller,'.')) for caller in ['MUTECT2','STRELKA2','VARDICTJAVA','VARSCAN2']])
                 #### CALLS ####
                 CALLS=[set_build_calls(build[tumor],tumor),set_build_calls(build[normal],normal)]
+                ##### QUAL FILTER#####
+                QUAL='.'
+                FILTER='.'
                 out_record=vcfpy.Record(record.CHROM,record.POS,record.ID,record.REF,record.ALT,QUAL,FILTER,INFO,FORMAT,CALLS)
                 if build['OFS'].count('PASS')>2:
                     high_conf_writer.write_record(out_record)
@@ -94,6 +89,9 @@ def main(argv=None):
                     low_conf_writer.write_record(out_record)
                 else:
                     failed_writer.write_record(out_record)
+    high_conf_writer.close()
+    low_conf_writer.close()
+    failed_writer.close()
 
 if __name__=='__main__':
     p=argparse.ArgumentParser()

@@ -1,7 +1,10 @@
 
 
 import tabix
+import csv
 from pybedtools import BedTool
+
+include: './sequenza.snake'
 
 def paired_pileup(wildcards):
     targets=config['resources']['library']['targets_key']
@@ -90,7 +93,7 @@ rule target_mpileup:
 #        --output-file - Output file for the matching variants
 #        --not-file - Output file for variants NOT matching regions/positions
 
-rule VarScan:
+rule VarScan2:
     input:
 #        unpack(paired_pileup),
         "data/work/{tumor}/{targets}/varscan/normal_tumor.targets.mpileup.gz",

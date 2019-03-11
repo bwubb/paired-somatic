@@ -1,0 +1,83 @@
+
+
+#check for snakemake objects?
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as s:
+    SAMPLES=s.read().splitlines()
+
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+for sample in SAMPLES:
+    mkdir_p('logs/cluster/%s' % sample)
+#checking for bams:
+
+if config['project'].get('bam_list',False):
+    with open(config['project']['bam_list'],'r') as b:
+        BAMS=dict(line.split('\t') for line in b.read().splitlines())
+else:
+    BAMS=False
+    missing_bam=0
+    for sample in SAMPLES:
+        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
+            print('WARNING: < %s > Missing BAM!' % sample)
+            missing_bam+=1
+        if missing_bam>0:
+            raise
+
+def paired_bams(wildcards):
+    ref=config['resources']['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
+
+rule all_vardictjava:
+    expand("data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+
+rule VarDictJava:#First a more lenient -P val, not sure what
+    input:
+        unpack(paired_bams)
+    output:
+        raw="data/work/{tumor}/{targets}/vardict/vardict.raw.vcf.gz"
+    params:
+        prefix=lambda wildcards: 'data/work/{tumor}/{targets}/vardict/somatic'.format(tumor=wildcards.tumor,targets=wildcards.targets),
+        ref=config['resources']['reference']['fasta'],
+        bed=config['resources']['library']['targets_bed'],
+        path="$HOME/software/VarDictJava/VarDict",
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        AF_THR=0.01
+    threads:
+        4
+    shell:#split to snps and indels
+        """
+        $HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {output.raw}
+        tabix -p vcf {output.raw}
+        """
+
+rule VarDictFilter:
+    input:
+        "data/work/{tumor}/{targets}/vardict/vardict.raw.vcf.gz"
+    output:
+        once="data/work/{tumor}/{targets}/vardict/vardict.once_filtered.vcf.gz",
+        twice="data/work/{tumor}/{targets}/vardict/vardict.twice_filtered.vcf.gz"
+    shell:
+        """
+        bcftools filter --threads {threads} -e '((FORMAT/AF * FORMAT/DP < 6) && ((FORMAT/MQ < 55.0 && FORMAT/NM > 1.0) || (FORMAT/MQ < 60.0 && FORMAT/NM > 2.0) || (FORMAT/DP < 10) || (FORMAT/QUAL < 45)))' -s filter_1 -m + -O z {input} > {output.once}
+        tabix -p vcf {output.once}
+        bcftools filter --threads {threads} -e 'FORMAT/AF < 0.2 && FORMAT/QUAL < 55 && INFO/SSF > 0.06' -s filter_2 -m + -O z {output.once} > {output.twice}
+        tabix -p vcf {output.twice}
+        """
+        #bcftools view -f PASS -i 'INFO/STATUS=="StrongSomatic" || INFO/STATUS=="LikelySomatic"' > somatic
+
+rule process_VarDict: #split vardict into loh, germline, somatic
+    input:
+        "data/work/{tumor}/{targets}/vardict/vardict.twice_filtered.vcf.gz"
+    output:
+        somatic="data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",
+        loh="data/work/{tumor}/{targets}/vardict/loh.twice_filtered.vcf.gz",
+        germline="data/work/{tumor}/{targets}/vardict/germline.twice_filtered.vcf.gz"
+    shell:
+        """
+        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -O z -o {output.somatic} {input} && tabix -p vcf {output.somatic}
+        bcftools view -i 'INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -O z -o {output.loh} {input} && tabix -p vcf {output.loh}
+        bcftools view -i 'INFO/STATUS==\"Germline\"' -O z -o {output.germline} {input} && tabix -p vcf {output.germline}
+        """

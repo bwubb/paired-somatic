@@ -1,0 +1,342 @@
+import tabix
+import csv
+import os
+import errno
+from pybedtools import BedTool
+
+include:'./mutect2.snake', './strelka2.snake','./vardictjava.snake','./varscan2_from.snake'
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno==errno.EEXIST and os.path.isdir(path):
+            pass
+
+#sample_list in config, default is samples.list
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
+
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+#checking for bams:
+
+for sample in SAMPLES:
+    mkdir_p('logs/cluster/%s' % sample)
+
+if config['project'].get('bam_list',False):
+    with open(config['project']['bam_list'],'r') as b:
+        BAMS=dict(line.split('\t') for line in b.read().splitlines())
+else:
+    BAMS=False
+    missing_bam=0
+    for sample in SAMPLES:
+        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
+            print('WARNING: < %s > Missing BAM!' % sample)
+            missing_bam+=1
+        if missing_bam>0:
+            raise
+
+def paired_bams(wildcards):
+    ref=config['resources']['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    if config['project'].get('bam_list',False):
+        return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
+    else:
+        return {'tumor':'bam_input/final/{tumor}/{ref}/{tumor}.ready.bam'.format(tumor=tumor,ref=ref),'normal':'bam_input/final/{normal}/{ref}/{normal}.ready.bam'.format(normal=normal,ref=ref)}
+
+def paired_pileup(wildcards):
+    targets=config['resources']['library']['targets_key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':'data/work/{tumor}/{targets}/sequenza/raw.mpileup'.format(tumor=tumor,targets=targets),'normal':'data/work/{normal}/{targets}/sequenza/raw.mpileup'.format(normal=normal,targets=targets)}
+
+def sample_bam(wildcards):
+    if getattr(wildcards,'tumor',False):
+        name=wildcards.tumor
+    elif getattr(wildcards,'normal',False):
+        name=wildcards.normal
+    else:
+        name=wildcards.sample
+    if config['project'].get('bam_list',False):
+        return BAMS[name]
+    return 'bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=name,reference=config['resources']['reference']['key'])
+
+def get_purity(wildcards):
+    with open(f'data/work/{wildcards.tumor}/{wildcards.targets}/sequenza/{wildcards.tumor}_confints_CP.txt','r') as file:
+        lines=file.read().splitlines()
+        return lines[3].split('\t')[0]#3 for max
+    #else:
+    #    return '1.0'
+
+def readcount_bam(wildcards):#The use of BAMS is all messed up
+    #print(BAMS[wildcards.tumor])
+    ref=config['resources']['reference']['key']
+    if getattr(wildcards,'class','')=='Somatic':
+        name=wildcards.tumor
+        #return f'bam_input/final/{wildcards.tumor}/{ref}/{wildcards.tumor}.ready.bam'
+    else:
+        #return f'bam_input/final/{PAIRS[wildcards.tumor]}/{ref}/{PAIRS[wildcards.tumor]}.ready.bam'
+        name=PAIRS[wildcards.tumor]
+    if config['project'].get('bam_list',False):
+        return BAMS[name]
+    else:
+        return f'bam_input/final/{name}/{ref}/{name}.ready.bam'
+
+rule all:
+    input:
+        expand("data/work/{tumor}/{targets}/varscan/somatic.fpfilter.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key']),
+        expand("data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key']),
+        expand("data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key']),
+        expand("data/work/{tumor}/{targets}/strelka/somatic.raw.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+
+
+#So rather then doing --bamOut options intitially, several of the tools including Mutect may have capability to provide intervals of manually filtered active regions.
+#Here is the list of things I want to look at.
+
+#Common bi-allelic mutations, maybe from ExAC? or gnomAD
+
+rule raw_mpileup:
+    input:
+        sample_bam
+    output:
+        "data/work/{sample}/{targets}/sequenza/raw.mpileup"
+    params:
+        ref=config['resources']['reference']['fasta']
+    shell:
+        "samtools mpileup -A -o {output} -f {params.ref} -Q 20 {input}"
+        #What does -B do, remove BAQ but will it work for sequenza still?
+        #-B recommended for VarScan
+        #-R --ignore-RG         ignore RG tags (one BAM = one sample)
+        #
+
+#This is too much for exome. It needs to be done chr at a time and concatenated
+rule sort_mpileup:
+    input:
+        "data/work/{sample}/{reference}/sequenza/raw.mpileup"
+    output:
+        "data/work/{sample}/{reference}/sequenza/sorted.mpileup.gz"
+    params:
+        temp="data/work/{sample}/{reference}/sequenza/sorted.mpileup"
+    run:
+        K={'1':1,'2':2,'3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,'11':11,'12':12,'13':13,'14':14,'15':15,'16':16,'17':17,'18':18,'19':19,'20':20,'21':21,'22':22,'X':23,'Y':24}
+        with open(input[0],'r') as ifile, open(params['temp'],'w') as ofile:
+            reader=csv.reader(ifile,delimiter='\t')
+            writer=csv.writer(ofile,delimiter='\t')
+            writer.writerows(sorted(reader,key=lambda row: (K[row[0]],int(row[1]))))
+        shell('bgzip {params["temp"]}')
+
+rule target_mpileup:
+    input:
+        "data/work/{sample}/{reference}/sequenza/sorted.mpileup.gz"
+    output:
+        "data/work/{sample}/{reference}/sequenza/targets.mpileup.gz"
+    params:
+        temp="data/work/{sample}/{reference}/sequenza/targets.mpileup",
+        bed=config['resources']['library']['targets_bed']
+    run:
+        shell('tabix -b 2 -e 2 {input[0]}')
+        bed=BedTool(params['bed'])
+        tb=tabix.open(input[0]+'.tbi')
+        with open(params['temp'],'w') as file:
+            writer=csv.writer(file,delimiter='\t')
+            for row in bed.sort().merge():
+                try:
+                    writer.writerows(tb.querys('{}:{}-{}'.format(*row[:3])))
+                except tabix.TabixError as e:
+                    print(str(e).upper(),'for {}:{}-{}'.format(*row[:3]))
+        shell("bgzip {params['temp']}")
+
+#rule pileup2seqz:
+#This can be run with multiprocs now
+rule bam2seqz:
+    input:
+        unpack(paired_pileup)
+    params:
+        gc="$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"
+    output:
+        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
+    shell:
+        #"sequenza-utils.py pileup2seqz -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+        "sequenza-utils bam2seqz --pileup -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+
+rule seqz_bin:
+    input:
+        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
+    output:
+        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
+    params:
+        bin=50
+        #50 for exome 200 for genome
+    shell:
+        #"sequenza-utils.py seqz-binning -w {params.bin} -a {input} | gzip > {output}"
+        "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
+
+rule seqz_extract:
+    input:
+        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
+    output:#rename
+        "data/work/{tumor}/{targets}/sequenza/{tumor}_confints_CP.txt",
+        "data/work/{tumor}/{targets}/sequenza/{tumor}_segments.txt"
+    params:
+        outdir="data/work/{tumor}/{targets}/sequenza"
+    threads:
+        4
+    script:
+        "sequenza-snakemake.R"
+
+rule somatic_bcftools_isec:
+    input:
+        mutect="data/work/{tumor}/{targets}/mutect/somatic.twice_filtered.vcf.gz",
+        strelka="data/work/{tumor}/{targets}/strelka/somatic.raw.vcf.gz",
+        vardict="data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",
+        varscan="data/work/{tumor}/{targets}/varscan/somatic.fpfilter.vcf.gz"
+    output:
+        "data/work/{tumor}/{targets}/concordant/somatic_sites.txt"
+    shell:
+        "bcftools isec -n +2 -f PASS {input.mutect} {input.strelka} {input.vardict} {input.varscan} > {output}"
+
+###
+rule germline_bcftools_isec:
+    input:
+        vardict="data/work/{tumor}/{targets}/vardict/germline.twice_filtered.vcf.gz",
+        varscan="data/work/{tumor}/{targets}/varscan/germline.fpfilter.vcf.gz"
+    output:
+        "data/work/{tumor}/{targets}/concordant/germline_sites.txt"
+    shell:
+        "bcftools isec -n +2 -f PASS {input.vardict} {input.varscan} > {output}"
+
+rule loh_bcftools_isec:
+    input:
+        vardict="data/work/{tumor}/{targets}/vardict/loh.twice_filtered.vcf.gz",
+        varscan="data/work/{tumor}/{targets}/varscan/loh.fpfilter.vcf.gz"
+    output:
+        "data/work/{tumor}/{targets}/concordant/loh_sites.txt"
+    shell:
+        "bcftools isec -n +2 -f PASS {input.vardict} {input.varscan} > {output}"
+
+rule table_annovar:
+    input:
+        'hello'
+    output:
+        'world'
+    params:
+        humandb="$HOME/resources/annnovar/humandb",
+        outfile="path lib stuff?"
+    shell:
+        "table_annovar.pl {input} {params.humandb} --buildver hg19 --vcfinput --outfile {params.outfile} --protocol refGene,cytoband,gwasCatalog,genomicSuperDups,dbscsnv11,dbnsfp33a,popfreq_max_20150413,exac03,exac03nontcga,gnomad_exome,avsnp150,snp138NonFlagged,icgc21,cosmic84_coding,cosmic84_noncoding,clinvar_20170905 --operation g,r,r,r,f,f,f,f,f,f,f,f,f,f,f,f -remove"
+
+rule HaplotypeCaller_byChr:
+    input:
+        "bam_input/final/{sample}/GRCh37/{sample}.ready.bam"
+    output:
+        "data/work/{sample}/gatk/chr{chr}.g.vcf.gz"
+    params:
+        ref=config['resources']['reference']['fasta'],
+        chr=lambda wildcards: wildcards.chr
+    shell:
+        "gatk --java-options '-Xmx15g' HaplotypeCaller -R {params.ref} -I {intput} -L {params.chr} --emit-ref-confidence GVCF -O {output}"
+
+def sample_gvcf_input(wildcards):
+    return expand("-V data/work/{sample}/gatk/chr{chr}.g.vcf.gz",sample=SAMPLES,chr=wildcards.chr)
+
+rule CombineGVCF_byChr:
+    input:
+        expand("data/work/{sample}/gatk-haplotype.g.vcf.gz",sample=SAMPLES)
+    output:
+        "data/work/{project}/gatk/chr{chr}.g.vcf.gz"
+    params:
+        ref=config['resources']['reference']['fasta']
+    shell:
+        "gatk --java-options '-Xmx30g' CombineGVCFs -R {params.ref} -I {input} -O {gvcf}"
+
+#I can use the other combine method if Im doing it by Chr
+#
+
+
+rule GenomicsDBImport_byChr:
+    input:
+        sample_gvcf_input
+    output:
+        "data/work/{project}/gatk/chr{chr}.db"
+    params:
+        #variants=gvcf_input,
+        chr=lambda wildcards: wildcards.chr,
+        ref=config['resources']['reference']['fasta'],
+        memory='30g'
+    shell:
+        "gatk --java-options '-Xmx{params.memory}' GenomicsDBImport {input} -R {params.ref} --genomicsDBWorkspace {output} --intervals {params.chr}"
+
+rule SelectIntervals_byChr:
+    input:
+        "data/work/{project}/gatk/chr{chr}.g.vcf.gz"
+    output:
+        "data/work/{project}/gatk/chr{chr}.{targets}.g.vcf.gz"
+    params:
+        reference=config['resources']['reference']['fasta'],
+        intervals=config['resources']['library']['targets_intervals'],
+        memory='30g'
+    shell:
+        "gatk --java-options '-Xmx{params.memory}' SelectVariants -I {input} -O {output} -R {params.reference} -L {params.intervals}"
+
+rule GenotypeGVCFs_byChr:
+    input:
+        "data/work/{project}/gatk/chr{chr}.{targets}.g.vcf.gz"
+        #"data/work/{project}/gatk/chr{chr}.db"
+    output:
+        "data/work/{project}/gatk/chr{chr}.{targets}.raw.vcf.gz"
+    params:
+        ref=config['resources']['reference']['fasta'],
+        chr=lambda wildcards: wildcards.chr
+        #intervals=(does this work if I dont subset the intervals?)
+    shell:
+        "gatk --java-options '-Xmx30g' GenotypeGVCFs -R {params.ref} -I {input} -O {output}"
+        #"gatk --java-options '-Xmx30g' GenotypeGVCFs -R {params.ref} -V gendb://{input} -O {output} -L {params.intervals}"
+
+def vcf_chr(wildcards):
+    expand("data/work/{project}/gatk/chr{chr}.{targets}.vcf.gz",project=wildcards.project,chr=+['X'],targets=wildcards.targets)
+
+#rule concat_byChr:
+#    input:
+#    output:
+#        raw="",
+#        snps
+#    params:
+#        ref=""
+#    shell:
+#        "bcftools concat {input} | bcftools sort"
+
+#I need to test this out.
+#Probably dont need to sort but maybe its better to, in which case I want the fastest smallest stream
+#Concat already into sorted order.
+#Or do I try the --naive thing? I dont understand what it means tbh.
+
+
+rule CODEX2_CoverageQC:
+    input:
+        #all_bams
+        #BAMS
+    output:
+        Y_qc="data/work/{project}/codex2/coverageQC.csv",
+        gc_qc="data/work/{project}/codex2/gc_qc.csv",
+        N="data/work/{project}/codex2/library_size_factor.csv"
+    params:
+    script:
+        "wes.codex2_coverage.snakemake.R"
+
+rule CODEX2_ns:
+    input:
+        Y_qc="data/work/{project}/codex2/coverageQC.csv",
+        gc_qc="data/work/{project}/codex2/gc_qc.csv",
+        N="data/work/{project}/codex2/library_size_factor.csv"
+    output:
+        "data/work/{project}/codex2/{chr}.codex2.filtered_segments.txt"
+    params:
+        chr=lambda wildcards: wildcards.chr,
+        normals="normals.list"
+    script:
+        "wes.codex2_ns.snakemake.R"
+
+#'bcftools norm -m-both "$1" | bcftools norm -f "$HOME"/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta -O z -o "$out".norm.vcf.gz'

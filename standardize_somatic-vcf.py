@@ -131,7 +131,7 @@ def modify_outheader(outheader):
 
 def make_outfile(infile):
     dir,file=os.path.split(infile)
-    outfile="{0}.std.{1}".format(*file.rsplit('.',1))
+    outfile="{0}.std.{1}.{2}".format(*file.rsplit('.',2))#now it needs to be .vcf.gz
     return f"{dir}/{outfile}"
 
 def mutect2(infile,tumor,normal):
@@ -170,7 +170,8 @@ def mutect2(infile,tumor,normal):
             call.data['AAF']=float(f"{_aaf:.2f}")
             #print(call)
         writer.write_record(outrecord)
-        #print(outrecord.INFO)
+    writer.close()
+    myvcf.close()
 
 def strelka2(infile,tumor,normal):
     myvcf=vcfpy.Reader.from_path(infile)#infile
@@ -207,6 +208,8 @@ def strelka2(infile,tumor,normal):
         outrecord.calls[1].data['GT']=tumor_gt
         outrecord.calls=_tumor_normal_allele_freqs(ref,alt,outrecord.calls)
         writer.write_record(outrecord)
+    writer.close()
+    myvcf.close()
 
 def vardict(infile,tumor,normal):
     myvcf=vcfpy.Reader.from_path(infile)#infile
@@ -216,6 +219,7 @@ def vardict(infile,tumor,normal):
     outheader=modify_outheader(myvcf.header.copy())
     outheader.samples.names=[tumor,normal]
     outfile=make_outfile(infile)
+    print(outfile)
     writer=vcfpy.Writer.from_path(outfile,outheader)
     #
     for record in myvcf:
@@ -250,6 +254,8 @@ def vardict(infile,tumor,normal):
         if outrecord.FILTER!=['PASS']:
             outrecord.FILTER=['.']
         writer.write_record(outrecord)
+    writer.close()
+    myvcf.close()
 
 def varscan2(infile,tumor,normal):
     myvcf=vcfpy.Reader.from_path(infile)#infile
@@ -293,6 +299,8 @@ def varscan2(infile,tumor,normal):
         if outrecord.FILTER!=['PASS']:
             outrecord.FILTER=['.']
         writer.write_record(outrecord)
+    writer.close()
+    myvcf.close()
 
 def main(argv=None):#NEED TO REMOVE ALL * Alts
     tumor=argv.tumor

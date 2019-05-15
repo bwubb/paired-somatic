@@ -1,4 +1,13 @@
+import errno
+import os
 
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno==errno.EEXIST and os.path.isdir(path):
+            pass
 
 #check for snakemake objects?
 with open(config.get('project',{}).get('sample_list','samples.list'),'r') as s:
@@ -11,37 +20,39 @@ for sample in SAMPLES:
     mkdir_p('logs/cluster/%s' % sample)
 #checking for bams:
 
-if config['project'].get('bam_list',False):
-    with open(config['project']['bam_list'],'r') as b:
-        BAMS=dict(line.split('\t') for line in b.read().splitlines())
-else:
-    BAMS=False
-    missing_bam=0
-    for sample in SAMPLES:
-        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
-            print('WARNING: < %s > Missing BAM!' % sample)
-            missing_bam+=1
-        if missing_bam>0:
-            raise
+with open(config['project']['bam_list'],'r') as b:
+    BAMS=dict(line.split('\t') for line in b.read().splitlines())
 
 def paired_bams(wildcards):
-    ref=config['resources']['reference']['key']
+    ref=config['reference']['key']
     tumor=wildcards.tumor
     normal=PAIRS[wildcards.tumor]
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
-rule all_vardictjava:
-    expand("data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",tumor=PAIRS.keys(),targets=config['resources']['library']['targets_key'])
+def initial_vardict_results(wildcards):
+    return {'raw':f"data/work/{wildcards.targets}/{wildcards.tumor}/vardict/somatic.raw.vcf.gz",'filtered':f"data/work/{wildcards.targets}/{wildcards.tumor}/vardict/somatic.twice_filtered.vcf.gz"}
 
-rule VarDictJava:#First a more lenient -P val, not sure what
+wildcard_constraints:
+    work_dir=f"data/work/{config['resources']['targets_key']}",
+    results_dir=f"data/final/{config['project']['name']}"
+
+rule collect_vardict_somatic_results:
+    input:
+        raw_calls=expand("{results_dir}/{tumor}.{targets}.vardict.somatic.raw.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        pass_calls=expand("{results_dir}/{tumor}.{targets}.vardict.somatic.twice_filtered.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+
+rule vardict_target:
+    input:
+        expand("{results_dir}/{tumor}.{targets}.vardict.somatic.twice_filtered.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+
+rule run_VarDictJava:#First a more lenient -P val, not sure what
     input:
         unpack(paired_bams)
     output:
-        raw="data/work/{tumor}/{targets}/vardict/vardict.raw.vcf.gz"
+        raw="{work_dir}/{tumor}/vardict/raw.vcf.gz"
     params:
-        prefix=lambda wildcards: 'data/work/{tumor}/{targets}/vardict/somatic'.format(tumor=wildcards.tumor,targets=wildcards.targets),
-        ref=config['resources']['reference']['fasta'],
-        bed=config['resources']['library']['targets_bed'],
+        ref=config['reference']['fasta'],
+        bed=config['resources']['targets_bed'],
         path="$HOME/software/VarDictJava/VarDict",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
         AF_THR=0.01
@@ -55,12 +66,15 @@ rule VarDictJava:#First a more lenient -P val, not sure what
 
 rule VarDictFilter:
     input:
-        "data/work/{tumor}/{targets}/vardict/vardict.raw.vcf.gz"
+        "{work_dir}/{tumor}/vardict/raw.vcf.gz"
     output:
-        once="data/work/{tumor}/{targets}/vardict/vardict.once_filtered.vcf.gz",
-        twice="data/work/{tumor}/{targets}/vardict/vardict.twice_filtered.vcf.gz"
+        somatic="{work_dir}/{tumor}/vardict/somatic.raw.vcf.gz",
+        once="{work_dir}/{tumor}/vardict/once_filtered.vcf.gz",
+        twice="{work_dir}/{tumor}/vardict/twice_filtered.vcf.gz"
     shell:
         """
+        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -O z -o {output.somatic} {input}
+        tabix -p vcf {output.somatic}
         bcftools filter --threads {threads} -e '((FORMAT/AF * FORMAT/DP < 6) && ((FORMAT/MQ < 55.0 && FORMAT/NM > 1.0) || (FORMAT/MQ < 60.0 && FORMAT/NM > 2.0) || (FORMAT/DP < 10) || (FORMAT/QUAL < 45)))' -s filter_1 -m + -O z {input} > {output.once}
         tabix -p vcf {output.once}
         bcftools filter --threads {threads} -e 'FORMAT/AF < 0.2 && FORMAT/QUAL < 55 && INFO/SSF > 0.06' -s filter_2 -m + -O z {output.once} > {output.twice}
@@ -68,16 +82,33 @@ rule VarDictFilter:
         """
         #bcftools view -f PASS -i 'INFO/STATUS=="StrongSomatic" || INFO/STATUS=="LikelySomatic"' > somatic
 
+#Maybe filter is only good for somatic?
+#What germline/loh are filtered out?
 rule process_VarDict: #split vardict into loh, germline, somatic
     input:
-        "data/work/{tumor}/{targets}/vardict/vardict.twice_filtered.vcf.gz"
+        "{work_dir}/{tumor}/vardict/twice_filtered.vcf.gz"
     output:
-        somatic="data/work/{tumor}/{targets}/vardict/somatic.twice_filtered.vcf.gz",
-        loh="data/work/{tumor}/{targets}/vardict/loh.twice_filtered.vcf.gz",
-        germline="data/work/{tumor}/{targets}/vardict/germline.twice_filtered.vcf.gz"
+        somatic="{work_dir}/{tumor}/vardict/somatic.twice_filtered.vcf.gz",
+        loh="{work_dir}/{tumor}/vardict/loh.twice_filtered.vcf.gz",
+        germline="{work_dir}/{tumor}/vardict/germline.twice_filtered.vcf.gz"
     shell:
         """
         bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -O z -o {output.somatic} {input} && tabix -p vcf {output.somatic}
         bcftools view -i 'INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -O z -o {output.loh} {input} && tabix -p vcf {output.loh}
         bcftools view -i 'INFO/STATUS==\"Germline\"' -O z -o {output.germline} {input} && tabix -p vcf {output.germline}
+        """
+
+rule VarDict_final:
+    input:
+        unpack(initial_vardict_results)
+    output:
+        raw_calls="{results_dir}/{tumor}.{targets}.vardict.somatic.raw.vcf.gz",
+        pass_calls="{results_dir}/{tumor}.{targets}.vardict.somatic.twice_filtered.pass.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz']
+        #-T temp dir for sort
+    shell:
+        """
+        bcftools view -R {params.regions} {input.raw} | bcftools sort -O z -o {output.raw_calls}
+        bcftools view -f PASS -R {params.regions} {input.filtered} | bcftools sort -O z -o {output.pass_calls}
         """

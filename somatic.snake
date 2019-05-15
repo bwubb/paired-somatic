@@ -238,9 +238,9 @@ rule process_VarDict: #split vardict into loh, germline, somatic
         germline="data/work/{tumor}/{targets}/vardict/germline.twice_filtered.vcf.gz"
     shell:
         """
-        bcftools view -f PASS -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -O z -o {output.somatic} {input} && tabix -p vcf {output.somatic}
-        bcftools view -f PASS -i 'INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -O z -o {output.loh} {input} && tabix -p vcf {output.loh}
-        bcftools view -f PASS -i 'INFO/STATUS==\"Germline\"' -O z -o {output.germline} {input} && tabix -p vcf {output.germline}
+        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -O z -o {output.somatic} {input} && tabix -p vcf {output.somatic}
+        bcftools view -i 'INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -O z -o {output.loh} {input} && tabix -p vcf {output.loh}
+        bcftools view -i 'INFO/STATUS==\"Germline\"' -O z -o {output.germline} {input} && tabix -p vcf {output.germline}
         """
 
 rule raw_mpileup:

@@ -1,84 +1,104 @@
+import errno
+import os
 
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno==errno.EEXIST and os.path.isdir(path):
+            pass
+
+def paired_bams(wildcards):
+    ref=config['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
+
+#sample_list in config, default is samples.list
 with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
     SAMPLES=i.read().splitlines()
 
 with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
-if config.get('project',{}).get('bam_list',False):
+#checking for bams:
+for sample in SAMPLES:
+    mkdir_p('logs/cluster/%s' % sample)
+
+if config['project'].get('bam_list',False):
     with open(config['project']['bam_list'],'r') as b:
         BAMS=dict(line.split('\t') for line in b.read().splitlines())
-        
+else:
+    BAMS=False
+    missing_bam=0
+    for sample in SAMPLES:
+        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
+            print('WARNING: < %s > Missing BAM!' % sample)
+            missing_bam+=1
+        if missing_bam>0:
+            raise
 
+wildcard_constraints:
+    work_dir=f"data/work/{config['resources']['targets_key']}",
+    results_dir=f"data/final/{config['project']['name']}"
 
-def sample_bam(wildcards):
-    if getattr(wildcards,'tumor',False):
-        name=wildcards.tumor
-    elif getattr(wildcards,'normal',False):
-        name=wildcards.normal
-    else:
-        name=wildcards.sample
-    if config['project'].get('bam_list',False):
-        return BAMS[name]
-    return 'bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=name,reference=config['resources']['reference']['key'])
-
-def paired_pileup(wildcards):
-    #targets=config['resources']['library']['targets_key']
-    targets=config['resources']['reference']['key']
-    tumor=wildcards.tumor
-    normal=PAIRS[wildcards.tumor]
-    return {'tumor':'data/work/{tumor}/{targets}/sequenza/raw.mpileup'.format(tumor=tumor,targets=targets),'normal':'data/work/{normal}/{targets}/sequenza/raw.mpileup'.format(normal=normal,targets=targets)}
-
-rule all:
+rule collect_sequenza_results:
     input:
-        expand("data/work/{tumor}/{targets}/sequenza/{tumor}_segments.txt",tumor=PAIRS.keys(),targets=config['resources']['reference']['key'])
+        expand("{work_dir}/{tumor}/sequenza/{tumor}_segments.txt",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
-rule raw_mpileup:
-    input:
-        sample_bam
-    output:
-        "data/work/{sample}/{targets}/sequenza/raw.mpileup"
-    params:
-        ref=config['resources']['reference']['fasta']
-    shell:
-        "samtools mpileup -A -B -R -o {output} -f {params.ref} -Q 20 {input}"
-        #What does -B do, remove BAQ but will it work for sequenza still?
-        #-B recommended for VarScan
-        #-R --ignore-RG         ignore RG tags (one BAM = one sample)
+
+#This can be parallelized; divided into chr.seqz.gz
+#probably combined after binning. each file has same header
+#zcat sample_chr1.seqz.gz sample_chr1.seqz.gz | \
+#    gawk '{if (NR!=1 && $1 != "chromosome") {print $0}}' | bgzip > \
+#    sample.seqz.gz
+#tabix -f -s 1 -b 2 -e 2 -S 1 sample.seqz.gz
+
+#awk 'FNR==1 && NR!=1 { while (/^HRD/) getline; } 1 {print}' *hrd.txt
 
 rule bam2seqz:
     input:
-        unpack(paired_pileup)
+        unpack(paired_bams)
     params:
+        ref=config['reference']['fasta'],
         gc="$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"#different file for tcga Homo_sapien_assembly19
     output:
-        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
+        "{work_dir}/{tumor}/sequenza/seqz.gz"
     shell:
         #"sequenza-utils.py pileup2seqz -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
-        "sequenza-utils bam2seqz --pileup -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+        "sequenza-utils bam2seqz -F {params.ref} -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+#Make workflow to create gc file
 
 rule seqz_bin:
     input:
-        "data/work/{tumor}/{targets}/sequenza/seqz.gz"
+        "{work_dir}/{tumor}/sequenza/seqz.gz"
     output:
-        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
+        "{work_dir}/{tumor}/sequenza/seqz.small.gz"
     params:
         bin=50
         #50 for exome 200 for genome
     shell:
-        #"sequenza-utils.py seqz-binning -w {params.bin} -a {input} | gzip > {output}"
         "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
 
 #need to remove Y MT M
 rule seqz_extract:
     input:
-        "data/work/{tumor}/{targets}/sequenza/seqz.small.gz"
-    output:#rename
-        "data/work/{tumor}/{targets}/sequenza/{tumor}_confints_CP.txt",
-        "data/work/{tumor}/{targets}/sequenza/{tumor}_segments.txt"
+        "{work_dir}/{tumor}/sequenza/seqz.small.gz"
+    output:
+        "{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt",
+        "{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
     params:
-        outdir="data/work/{tumor}/{targets}/sequenza"
+        outdir="{work_dir}/{tumor}/sequenza"
     threads:
         4
     script:
         "sequenza-snakemake.R"
+
+rule sequenza_hrd:
+    input:
+        segments="{work_dir}/{tumor}/sequenza/{tumor}_segments.txt",
+        confints="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt",
+    output:
+        "{tumor}_hrd.txt"
+    script:
+        "Rscript $HOME/software/BRADtools/beta/hrd_wrapper.R {tumor} {input.segments} {input.confints}"

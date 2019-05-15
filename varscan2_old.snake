@@ -1,5 +1,7 @@
 
-
+'''
+This is old varScan2 code. It used v2.3.9 calling method, but 2.4.3 filtering.
+'''
 
 def paired_pileup(wildcards):
     targets=config['resources']['library']['targets_key']

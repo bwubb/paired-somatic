@@ -3,13 +3,11 @@ import vcfpy
 import argparse
 from copy import copy
 
-def _tumor_normal_allele_freqs(ref,alt,calls):#unclear if Im doing this after establishing genotypes. For now assume one one variant
+def _tumor_normal_allele_freqs(ref,alt,calls):
     """
     Retreive AD, AF fields for Strelka vcf files
     Makes best guess attempt
     """
-    #These are not accurrate descriptions'
-    #AD should be all alleles not alt alelle only, same for af.
     def _snv_freq(call):
         try:
             used_depth=call.data['DP']-call.data['FDP']#-call.data['SDP']
@@ -47,7 +45,7 @@ def _tumor_normal_allele_freqs(ref,alt,calls):#unclear if Im doing this after es
         call.data['AAF']=_aaf
     return calls
 
-def _tumor_normal_genotypes(ref,alt,info):#, fname, coords):#record
+def _tumor_normal_genotypes(ref,alt,info):
     """Retrieve standard 0/0, 0/1, 1/1 style genotypes from INFO field.
     Normal -- NT field (ref, het, hom, conflict)
     Tumor -- SGT field
@@ -149,6 +147,8 @@ def mutect2(infile,tumor,normal):
         E={'CALLER':'Mutect2'}
         #E['OFS']=['%2C'.join(record.FILTER)]#%2C keeps becoming %252C %= %25
         E['OFS']=record.FILTER
+        if E['OFS']!=['PASS']:
+            E['OFS']=['REJECT']
         if outrecord.FILTER!=['PASS']:
             E['SS']='REJECT'
             outrecord.FILTER=['.']
@@ -189,6 +189,8 @@ def strelka2(infile,tumor,normal):
         E={'CALLER':'Strelka2'}
         #E['OFS']='%2C'.join(record.FILTER)#I may be able to use comma if my header line is correct. Other programs might get upset.
         E['OFS']=record.FILTER
+        if E['OFS']!=['PASS']:
+            E['OFS']=['REJECT']
         if record.INFO.get('SOMATIC',False):#strelka
             E['SS']='SOMATIC'
         else:
@@ -227,6 +229,8 @@ def vardict(infile,tumor,normal):
         E={'CALLER':'VarDictJava'}
         #E['OFS']='%2C'.join(record.FILTER)
         E['OFS']=record.FILTER
+        if E['OFS']!=['PASS']:
+            E['OFS']=['REJECT']
         if not outrecord.INFO.get('STATUS','UNKNOWN') in ['LikelySomatic','Somatic']:
             E['SS']=outrecord.INFO.get('STATUS','UNKNOWN').upper()
         else:
@@ -276,6 +280,8 @@ def varscan2(infile,tumor,normal):
         E={'CALLER':'VarScan2'}
         #E['OFS']='%2C'.join(record.FILTER)
         E['OFS']=record.FILTER
+        if E['OFS']!=['PASS']:
+            E['OFS']=['REJECT']
         outrecord.INFO.update(E)
         outrecord.FORMAT=check_FORMAT(outrecord.FORMAT)
         #check DP
@@ -302,38 +308,38 @@ def varscan2(infile,tumor,normal):
     writer.close()
     myvcf.close()
 
-def main(argv=None):#NEED TO REMOVE ALL * Alts
+def main(argv=None):
     tumor=argv.tumor
     normal=argv.normal
     lib=argv.lib
     ### Mutect2 ###
-    if os.path.isfile(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz'):
-        print(os.path.abspath(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz'))
-        input=os.path.abspath(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz')
+    if os.path.isfile(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz')
         mutect2(input,tumor,normal)
     else:
-        print('Could not locate',os.path.abspath(f'data/work/{tumor}/{lib}/mutect/somatic.twice_filtered.norm.vcf.gz'))#need normalized
+        print('Could not locate',os.path.abspath(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz'))#need normalized
     ### Strelka2 ###
-    if os.path.isfile(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz'):
-        print(os.path.abspath(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz'))
-        input=os.path.abspath(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz')
+    if os.path.isfile(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz')
         strelka2(input,tumor,normal)
     else:
-        print('Could not locate',os.path.abspath(f'data/work/{tumor}/{lib}/strelka/somatic.raw.norm.vcf.gz'))
+        print('Could not locate',os.path.abspath(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz'))
     ### Vardict ###
-    if os.path.isfile(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz'):
-        print(os.path.abspath(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz'))
-        input=os.path.abspath(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz')
+    if os.path.isfile(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz')
         vardict(input,tumor,normal)
     else:
-        print('Could not locate',os.path.abspath(f'data/work/{tumor}/{lib}/vardict/somatic.twice_filtered.norm.vcf.gz'))
+        print('Could not locate',os.path.abspath(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz'))
     ### VarScan2 ###
-    if os.path.isfile(f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz'):
-        print(os.path.abspath(f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz'))
-        input=os.path.abspath(f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz')
+    if os.path.isfile(f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz'):
+        print(os.path.abspath(f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz'))
+        input=os.path.abspath(f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz')
         varscan2(input,tumor,normal)
     else:
-        print('Could not locate',f'data/work/{tumor}/{lib}/varscan/somatic.fpfilter.norm.vcf.gz')
+        print('Could not locate',f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz')
 
 if __name__=='__main__':
     p=argparse.ArgumentParser()

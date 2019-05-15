@@ -8,18 +8,18 @@ raw_mpileup:
     'Job': '{wildcards.sample}_{rule}'
     'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'
-MuTect2:
+run_Mutect2:
     'Mem': '18432'
     'nt': '4'
-VarDictJava:
+run_VarDictJava:
     'Mem': '18432'
     'nt': '4'
-VarScan:
+run_VarScan2:
     'Mem': '18432'
-Manta:
+run_Manta:
     'Mem': '18432'
     'nt': '4'
-Strelka2:
+run_Strelka2:
     'Mem': '18432'
     'nt': '4'
 HaplotypeCaller_byChr:

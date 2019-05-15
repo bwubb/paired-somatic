@@ -1,11 +1,12 @@
 
 library(CODEX2)
+args = commandArgs(trailingOnly=TRUE)
 
 #normal_samples<-read.table(file=snakemake@params[['normals']])
 #projectname<-snakemake@params[['project']]
-normal_samples<-read.table(file='normals.list')
+normal_samples<-read.table(file='normals.S07604715.list')
 projectname<-'data/work/BasserExome_S07604715/codex2'
-chr<-'1'
+chr<-args[1]
 bedFile<-'/home/bwubb/resources/Bed_files/SureSelect-Exon_v6+COSMIC.S07604715.Covered.bed'
 exomtarg <- read.table(bedFile, sep = "\t")
 ref <- GRanges(seqnames=exomtarg[,1],ranges=IRanges(start=exomtarg[,2], end=exomtarg[,3]))

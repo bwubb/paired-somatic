@@ -47,3 +47,11 @@ rule CODEX2_ns:
         normals=config['project']['normal_list']
     script:
         "codex2_paired_runChr.snakemake.R"
+
+rule CODEX2_merge:
+    input:
+        
+    output:
+    
+    shell:
+    

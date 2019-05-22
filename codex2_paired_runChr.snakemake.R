@@ -4,6 +4,11 @@ args = commandArgs(trailingOnly=TRUE)
 
 #normal_samples<-read.table(file=snakemake@params[['normals']])
 #projectname<-snakemake@params[['project']]
+if (exists("snakemake")) {
+    normal_samples=
+    projectname=
+    
+
 normal_samples<-read.table(file='normals.S07604715.list')
 projectname<-'data/work/BasserExome_S07604715/codex2'
 chr<-args[1]

@@ -38,7 +38,7 @@ for i,file in enumerate(input):
                 type+=['neutral']
             else:
                 type+=['unknown']
-            name=f"{length}bp;{';'.join(type)}_A{row['A']};B{row['B']}"
+            name=f"{length}bp;{';'.join(type)};A{row['A']};B{row['B']}"
             score=f"{int(row['CNt'])*100}"
             strand="+"
             bed_row={'chrom':row['chromosome'],'chromStart':f"{start}",'chromEnd':f"{end}",'name':f"{name}",'score':f"{score}",'strand':strand}

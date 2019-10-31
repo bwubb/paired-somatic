@@ -31,7 +31,8 @@ rule standardize_somatic_vcf:
     output:
         "{dir}/somatic.{vcf}.norm.std.vcf.gz"
     params:
-        unpack(standardize_somatic_vcf_params)
+        #unpack(standardize_somatic_vcf_params)
+        #I dont think this works
     script:
         "standardize_somatic-vcf.py"
         #"standardize_somatic-vcf.py -T $1 -N $2 -L $lib"
@@ -60,6 +61,6 @@ rule tumor_normal_somatic_ensemble:
         "{work_dir}/{tumor}/annovar/somatic.low_confidence.vcf.gz",
         "{work_dir}/{tumor}/annovar/somatic.failed_confidence.vcf.gz"
     params:
-        lib=""
+        lib=config['resources']['targets_key']
     script:
         "tumor-normal_somatic_ensemble.snakemake.py"

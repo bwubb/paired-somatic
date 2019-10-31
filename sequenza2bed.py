@@ -30,10 +30,14 @@ for i,file in enumerate(input):
             type=[]
             if any([row['A']=='0',row['B']=='0']):
                 type+=['loh']
-            if int(row['CNt'])>2:
+            if int(row['CNt'])>4:
+                type+=['amp']
+            elif int(row['CNt'])>2 and int(row['CNt'])<=4:
                 type+=['gain']
-            elif int(row['CNt'])<2:
+            elif int(row['CNt'])<2 and int(row['CNt'])>=1:
                 type+=['loss']
+            elif int(row['CNt'])<1:
+                type+=['del']
             elif int(row['CNt'])==2:
                 type+=['neutral']
             else:

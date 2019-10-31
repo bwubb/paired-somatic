@@ -67,6 +67,7 @@ rule bam2seqz:
     shell:
         #"sequenza-utils.py pileup2seqz -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
         "sequenza-utils bam2seqz -F {params.ref} -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+        #CHECK IF THE FILE IS EMPTY
 #Make workflow to create gc file
 
 rule seqz_bin:

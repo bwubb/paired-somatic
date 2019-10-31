@@ -132,7 +132,8 @@ def make_outfile(infile):
     outfile="{0}.std.{1}.{2}".format(*file.rsplit('.',2))#now it needs to be .vcf.gz
     return f"{dir}/{outfile}"
 
-def mutect2(infile,tumor,normal):
+#This
+def std_mutect2(infile,tumor,normal,lib):
     myvcf=vcfpy.Reader.from_path(infile)#argv.infile
     myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
     myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
@@ -147,11 +148,11 @@ def mutect2(infile,tumor,normal):
         E={'CALLER':'Mutect2'}
         #E['OFS']=['%2C'.join(record.FILTER)]#%2C keeps becoming %252C %= %25
         E['OFS']=record.FILTER
-        if E['OFS']!=['PASS']:
-            E['OFS']=['REJECT']
+        #if E['OFS']!=['PASS']:
+        #    E['OFS']=['REJECT']
         if outrecord.FILTER!=['PASS']:
             E['SS']='REJECT'
-            outrecord.FILTER=['.']
+            #outrecord.FILTER=['REJECT']
         else:
             E['SS']='SOMATIC'
         outrecord.INFO.update(E)
@@ -173,7 +174,7 @@ def mutect2(infile,tumor,normal):
     writer.close()
     myvcf.close()
 
-def strelka2(infile,tumor,normal):
+def std_strelka2(infile,tumor,normal,lib):
     myvcf=vcfpy.Reader.from_path(infile)#infile
     myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
     myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
@@ -189,16 +190,16 @@ def strelka2(infile,tumor,normal):
         E={'CALLER':'Strelka2'}
         #E['OFS']='%2C'.join(record.FILTER)#I may be able to use comma if my header line is correct. Other programs might get upset.
         E['OFS']=record.FILTER
-        if E['OFS']!=['PASS']:
-            E['OFS']=['REJECT']
+        #if E['OFS']!=['PASS']:
+        #    E['OFS']=['REJECT']
         if record.INFO.get('SOMATIC',False):#strelka
             E['SS']='SOMATIC'
         else:
             E['SS']='REJECT'
         outrecord.INFO.update(E)
         #reorder INFO with .fromkeys(S[, v]) → New ordered dictionary with keys from S or  .move_to_end(last==False)
-        if outrecord.FILTER!=['PASS']:
-            outrecord.FILTER=['.']
+        #if outrecord.FILTER!=['PASS']:
+        #    outrecord.FILTER=['.']
         ref=outrecord.REF
         alt=outrecord.ALT
         info=outrecord.INFO
@@ -213,7 +214,7 @@ def strelka2(infile,tumor,normal):
     writer.close()
     myvcf.close()
 
-def vardict(infile,tumor,normal):
+def std_vardict(infile,tumor,normal,lib):
     myvcf=vcfpy.Reader.from_path(infile)#infile
     myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
     myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
@@ -229,8 +230,8 @@ def vardict(infile,tumor,normal):
         E={'CALLER':'VarDictJava'}
         #E['OFS']='%2C'.join(record.FILTER)
         E['OFS']=record.FILTER
-        if E['OFS']!=['PASS']:
-            E['OFS']=['REJECT']
+        #if E['OFS']!=['PASS']:
+        #    E['OFS']=['REJECT']
         if not outrecord.INFO.get('STATUS','UNKNOWN') in ['LikelySomatic','Somatic']:
             E['SS']=outrecord.INFO.get('STATUS','UNKNOWN').upper()
         else:
@@ -255,13 +256,13 @@ def vardict(infile,tumor,normal):
                 _rad=0
             call.data['AAF']=float(f"{_aaf:.2f}")
             call.data['AD']=[_rad,_aad]
-        if outrecord.FILTER!=['PASS']:
-            outrecord.FILTER=['.']
+        #if outrecord.FILTER!=['PASS']:
+        #    outrecord.FILTER=['.']
         writer.write_record(outrecord)
     writer.close()
     myvcf.close()
 
-def varscan2(infile,tumor,normal):
+def std_varscan2(infile,tumor,normal,lib):
     myvcf=vcfpy.Reader.from_path(infile)#infile
     myvcf.header.samples.names=_sample_names(myvcf.header.samples.names,tumor,normal)
     myvcf.header.samples.name_to_idx={k:v for v,k in enumerate(myvcf.header.samples.names)}
@@ -280,8 +281,8 @@ def varscan2(infile,tumor,normal):
         E={'CALLER':'VarScan2'}
         #E['OFS']='%2C'.join(record.FILTER)
         E['OFS']=record.FILTER
-        if E['OFS']!=['PASS']:
-            E['OFS']=['REJECT']
+        #if E['OFS']!=['PASS']:
+        #    E['OFS']=['REJECT']
         outrecord.INFO.update(E)
         outrecord.FORMAT=check_FORMAT(outrecord.FORMAT)
         #check DP
@@ -302,51 +303,78 @@ def varscan2(infile,tumor,normal):
                 _rad=0
             call.data['AAF']=float(f"{_aaf:.2f}")
             call.data['AD']=[_rad,_aad]
-        if outrecord.FILTER!=['PASS']:
-            outrecord.FILTER=['.']
+        #if outrecord.FILTER!=['PASS']:
+        #    outrecord.FILTER=['.']
         writer.write_record(outrecord)
     writer.close()
     myvcf.close()
 
-def main(argv=None):
-    tumor=argv.tumor
-    normal=argv.normal
-    lib=argv.lib
+def std_all(infile,tumor,normal,lib):
     ### Mutect2 ###
     if os.path.isfile(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz'):
         print(os.path.abspath(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz'))
         input=os.path.abspath(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz')
-        mutect2(input,tumor,normal)
+        std_mutect2(input,tumor,normal,lib)
     else:
         print('Could not locate',os.path.abspath(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz'))#need normalized
     ### Strelka2 ###
     if os.path.isfile(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz'):
         print(os.path.abspath(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz'))
         input=os.path.abspath(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz')
-        strelka2(input,tumor,normal)
+        std_strelka2(input,tumor,normal,lib)
     else:
         print('Could not locate',os.path.abspath(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.vcf.gz'))
     ### Vardict ###
     if os.path.isfile(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz'):
         print(os.path.abspath(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz'))
         input=os.path.abspath(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz')
-        vardict(input,tumor,normal)
+        std_vardict(input,tumor,normal,lib)
     else:
         print('Could not locate',os.path.abspath(f'data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz'))
     ### VarScan2 ###
     if os.path.isfile(f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz'):
         print(os.path.abspath(f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz'))
         input=os.path.abspath(f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz')
-        varscan2(input,tumor,normal)
+        std_varscan2(input,tumor,normal,lib)
     else:
         print('Could not locate',f'data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz')
 
-if __name__=='__main__':
+def get_Args():
     p=argparse.ArgumentParser()
+    p.add_argument('-i','--input_fp',help='Input filepath')
     p.add_argument('-T','--tumor',required=True,help='Tumor ID')
     p.add_argument('-N','--normal',required=True,help='Normal ID')
-    p.add_argument('-L','--lib',required=True,help='Library ID')
-    argv=p.parse_args()
+    p.add_argument('--lib',default='S07604715',help='Library ID')
+    p.add_argument('--mode',choices=['mutect2','strelka2','vardict','varscan2','all'],default='all',help='Run mode')
+    args=p.parse_args()
+    return args
+
+def main(argv=None):
+    RUN={'mutect2':std_mutect2,'strelka2':std_strelka2,'vardict':std_vardict,'varscan2':std_varscan2,'all':std_all}
+    try:
+        snakemake
+        #samples file in params
+    except NameError:
+        args=get_Args()
+        input=args.input_fp
+        tumor=args.tumor
+        normal=args.normal
+        lib=args.lib
+        mode=args.mode
+    else:
+        input=snakemake.input[0]
+        output=snakemake.output[0]
+        tumor=snakemake.params['tumor']
+        normal=snakemake.params['normal']
+        lib=snakemake.params['lib']
+        mode=snakemake.params['mode']
+    
+    RUN[mode](input,tumor,normal,lib)
+    
+    
+
+if __name__=='__main__':
+    
     #if in snakemake I can write a --log argument to write run properties
     #--log might be built in
     main(argv)

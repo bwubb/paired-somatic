@@ -1,0 +1,190 @@
+import os
+import errno
+import tabix
+import csv
+from pybedtools import BedTool
+
+include:"./sequenza.snake"
+
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno==errno.EEXIST and os.path.isdir(path):
+            pass
+
+def paired_bams(wildcards):
+    ref=config['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
+
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
+    for sample in SAMPLES:
+        mkdir_p('logs/cluster/%s' % sample)
+
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+with open(config['project']['bam_list'],'r') as b:
+    BAMS=dict(line.split('\t') for line in b.read().splitlines())
+
+def initial_varscan2_results(wildcards):
+    return {'raw':f"data/work/{wildcards.targets}/{wildcards.tumor}/varscan2/somatic.raw.vcf.gz",'filtered':f"data/work/{wildcards.targets}/{wildcards.tumor}/varscan2/somatic.fpfilter.vcf.gz"}
+
+WORKDIR=f"data/work/{config['resources']['targets_key']}"
+TUMORS=PAIRS.keys()
+
+wildcard_constraints:
+    work_dir=f"data/work/{config['resources']['targets_key']}",
+    results_dir=f"data/final/{config['project']['name']}"
+
+rule collect_varscan2_somatic_pass_results:
+    input:
+        pass_calls=expand("{results_dir}/{tumor}.{targets}.varscan2.somatic.fpfilter.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+
+rule collect_varscan2_results:
+    input:
+        varscan2=expand("{work_dir}/{tumor}/varscan2/somatic.fpfilter.vcf.gz",work_dir=WORKDIR,tumor=TUMORS)
+
+rule pair_mpileup:
+    input:
+        unpack(paired_bams)
+    output:
+        "{work_dir}/{tumor}/varscan2/normal_tumor.mpileup"
+    params:
+        ref=config['reference']['fasta'],
+        bed=config['resources']['targets_bed']
+    shell:
+        "samtools mpileup -ABR -f {params.ref} -l {params.bed} -o {output} -Q 20 {input.normal} {input.tumor}"
+
+rule run_VarScan2:#OR return to mpileup.gz and zcat into VarScan2
+    input:
+        pileup="{work_dir}/{tumor}/varscan2/normal_tumor.mpileup",
+        CP="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt"
+    output:
+        indel="{work_dir}/{tumor}/varscan2/raw.indel.vcf",
+        snp="{work_dir}/{tumor}/varscan2/raw.snp.vcf"#Note the none plural
+        #I can use --output-snp and indel to name files
+    params:
+        prefix="{work_dir}/{tumor}/varscan2/raw",
+        #args='--min-coverage 3 --min-var-freq 0.08 --p-value 0.10 --somatic-p-value 0.05 --strand-filter 0',
+        args="--min-coverage 5 --p-value 0.98 --strand-filter 1",
+        memory='16g'
+    run:
+        with open(input["CP"],'r') as file:
+            lines=file.read().splitlines()
+            purity=lines[3].split('\t')[0]#3 for max
+        shell(f"java -Xmx{params.memory} -jar $HOME/software/VarScan/VarScan.v2.4.3.jar somatic {input.pileup} {params.prefix} --mpileup 1 --output-vcf 1 --tumor-purity {purity} {params.args}")
+
+rule VarScan2_processSomatic:
+    input:
+        snp="{work_dir}/{tumor}/varscan2/raw.snp.vcf",
+        indel="{work_dir}/{tumor}/varscan2/raw.indel.vcf"
+    output:
+        "{work_dir}/{tumor}/varscan2/raw.snp.Somatic.vcf",
+        "{work_dir}/{tumor}/varscan2/raw.indel.Somatic.vcf",
+        "{work_dir}/{tumor}/varscan2/raw.snp.LOH.vcf",
+        "{work_dir}/{tumor}/varscan2/raw.indel.LOH.vcf",
+        "{work_dir}/{tumor}/varscan2/raw.snp.Germline.vcf",
+        "{work_dir}/{tumor}/varscan2/raw.indel.Germline.vcf"
+    params:
+        #--min-tumor-freq - Minimum variant allele frequency in tumor [0.10]
+        #--max-normal-freq - Maximum variant allele frequency in normal [0.05]
+        #--p-value - P-value for high-confidence calling [0.07]
+    shell:
+        """
+        java -jar ~/software/VarScan/VarScan.v2.4.3.jar processSomatic {input.snp}
+        java -jar ~/software/VarScan/VarScan.v2.4.3.jar processSomatic {input.indel}
+        """
+
+rule bamreadcount_somatic_regions:
+    input:
+        "{work_dir}/{tumor}/varscan2/raw.snp.Somatic.vcf",
+        "{work_dir}/{tumor}/varscan2/raw.indel.Somatic.vcf"
+    output:
+        "{work_dir}/{tumor}/varscan2/raw.snp.Somatic.regions",
+        "{work_dir}/{tumor}/varscan2/raw.indel.Somatic.regions"
+    script:
+        "bam-readcount_regions-snakemake.py"
+
+rule bamreadcount_somatic_readcounts:
+    input:
+        bam=lambda wildcards: BAMS[wildcards.tumor],
+        snp="{work_dir}/{tumor}/varscan2/raw.snp.Somatic.regions",
+        indel="{work_dir}/{tumor}/varscan2/raw.indel.Somatic.regions"
+    output:
+        snp="{work_dir}/{tumor}/varscan2/raw.snp.Somatic.readcounts",
+        indel="{work_dir}/{tumor}/varscan2/raw.indel.Somatic.readcounts"
+    params:
+        ref=config['reference']['fasta']
+    shell:
+        """
+        $HOME/software/bam-readcount/bin/bam-readcount -b 15 -q 1 -w 1 -f {params.ref} -l {input.snp} {input.bam} > {output.snp}
+        $HOME/software/bam-readcount/bin/bam-readcount -i -b 15 -q 1 -w 1 -f {params.ref} -l {input.indel} {input.bam} > {output.indel}
+        """
+
+#the precision of variant and mutation calling by removing artifacts associated with short-read alignment.
+#-For somatic mutations, generate bam-readcounts with the Tumor BAM. For LOH and Germline, generate readcounts with the Normal BAM
+#-For de novo mutations (trio calling), generate readcounts with the child BAM.
+#The filter requires the bam-readcount utility: https://github.com/genome/bam-readcount
+
+rule VarScan2_somatic_fpfilter:
+    input:
+        snp_vcf="{work_dir}/{tumor}/varscan2/raw.snp.Somatic.vcf",
+        indel_vcf="{work_dir}/{tumor}/varscan2/raw.indel.Somatic.vcf",
+        snp_readcount="{work_dir}/{tumor}/varscan2/raw.snp.Somatic.readcounts",
+        indel_readcount="{work_dir}/{tumor}/varscan2/raw.indel.Somatic.readcounts"
+    output:
+        snp_out="{work_dir}/{tumor}/varscan2/raw.snps.fpfilter.out",
+        indel_out="{work_dir}/{tumor}/varscan2/raw.indels.fpfilter.out"
+    shell:
+        """
+        java -jar $HOME/software/VarScan/VarScan.v2.4.3.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp_out} --keep-failures
+        java -jar $HOME/software/VarScan/VarScan.v2.4.3.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel_out} --keep-failures
+        """
+
+rule Fix_Varscan2_output:
+    input:
+        "{work_dir}/{tumor}/varscan2/raw.snps.fpfilter.out",
+        "{work_dir}/{tumor}/varscan2/raw.indels.fpfilter.out"
+    output:
+        "{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf",
+        "{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf"
+    script:
+        'fix_varscan2_out.py'
+#perl -lne 'if (/^##/) { print } elif (/^#CHROM/) { print ##FILTER=<ID=NoReadCount,Description="Missing read count information from bam-readcount file"; print } else { @row=split /\t/; $row[6]=~s/\,/\;/g; print join ("\t",@row)};'
+
+rule VarScan2_somatic_merge:
+    input:
+        snp="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf",
+        indel="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf"
+    output:
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.vcf.gz"
+    params:
+        bgzsnp="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf.gz",
+        bgzindel="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf.gz"
+    shell:
+        """
+        bgzip -c {input.snp} > {params.bgzsnp}
+        tabix -p vcf {params.bgzsnp}
+        bgzip -c {input.indel} > {params.bgzindel}
+        tabix -p vcf {params.bgzindel}
+        bcftools concat -a {params.bgzsnp} {params.bgzindel} | bcftools sort -O z -o {output}
+        tabix -p vcf {output}
+        """
+
+rule VarScan2_final:
+    input:
+        unpack(initial_varscan2_results)
+    output:
+        pass_calls="{results_dir}/{tumor}.{targets}.varscan2.somatic.fpfilter.pass.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz']
+        #-T temp dir for sort
+    shell:
+        """
+        bcftools view -f PASS -R {params.regions} {input.filtered} | bcftools sort -O z -o {output.pass_calls}
+        """
+

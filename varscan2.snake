@@ -149,40 +149,42 @@ rule VarScan2_somatic_fpfilter:
         snp_readcount="{work_dir}/{tumor}/varscan2/raw.snp.Somatic.readcounts",
         indel_readcount="{work_dir}/{tumor}/varscan2/raw.indel.Somatic.readcounts"
     output:
-        snps="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf.gz",
-        indels="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf.gz"
-    params:
-        snp_out="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf",
-        indel_out="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf"
+        snp_out="{work_dir}/{tumor}/varscan2/raw.snps.fpfilter.out",
+        indel_out="{work_dir}/{tumor}/varscan2/raw.indels.fpfilter.out"
     shell:
         """
-        java -jar $HOME/software/VarScan/VarScan.v2.4.3.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {params.snp_out}
-        bgzip {params.snp_out}
-        tabix -p vcf {output.snps}
-        java -jar $HOME/software/VarScan/VarScan.v2.4.3.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {params.indel_out}
-        bgzip {params.indel_out}
-        tabix -p vcf {output.indels}
+        java -jar $HOME/software/VarScan/VarScan.v2.4.3.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {snp_out} --keep-failures
+        java -jar $HOME/software/VarScan/VarScan.v2.4.3.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {indel_out} --keep-failures
         """
+
+rule Fix_Varscan2_output:
+    input:
+        "{work_dir}/{tumor}/varscan2/raw.snps.fpfilter.out",
+        "{work_dir}/{tumor}/varscan2/raw.indels.fpfilter.out"
+    output:
+        "{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf",
+        "{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf"
+    script:
+        'fix_varscan2_out.py'
+#perl -lne 'if (/^##/) { print } elif (/^#CHROM/) { print ##FILTER=<ID=NoReadCount,Description="Missing read count information from bam-readcount file"; print } else { @row=split /\t/; $row[6]=~s/\,/\;/g; print join ("\t",@row)};'
 
 rule VarScan2_somatic_merge:
     input:
-        raw_snp="{work_dir}/{tumor}/varscan2/raw.snp.Somatic.vcf",
-        raw_indel="{work_dir}/{tumor}/varscan2/raw.indel.Somatic.vcf",
-        filtered_snp="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf.gz",
-        filtered_indel="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf.gz"
+        snp="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf",
+        indel="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf"
     output:
-        raw="{work_dir}/{tumor}/varscan2/somatic.raw.vcf.gz",
-        filtered="{work_dir}/{tumor}/varscan2/somatic.fpfilter.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.vcf.gz"
+    params:
+        bgzsnp="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf.gz",
+        bgzindel="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf.gz"
     shell:
         """
-        bgzip -c {input.raw_snp} > {input.raw_snp}.gz
-        tabix -p vcf {input.raw_snp}.gz
-        bgzip -c {input.raw_indel} > {input.raw_indel}.gz
-        tabix -p vcf {input.raw_indel}.gz
-        bcftools concat -a {input.raw_snp}.gz {input.raw_indel}.gz | bcftools sort -O z -o {output.raw}
-        tabix -p vcf {output.raw}
-        bcftools concat -a {input.filtered_snp} {input.filtered_indel} | bcftools sort -O z -o {output.filtered}
-        tabix -p vcf {output.filtered}
+        bgzip -c {input.snp} > {params.bgzsnp}
+        tabix -p vcf {params.bgzsnp}
+        bgzip -c {input.raw_indel} > {params.bgzindel}
+        tabix -p vcf {params.bgzindel}
+        bcftools concat -a {{params.bgzsnp}} {{params.bgzindel}} | bcftools sort -O z -o {output}
+        tabix -p vcf {output}
         """
 
 rule VarScan2_final:

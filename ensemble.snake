@@ -1,21 +1,26 @@
+import errno
 import os
 
-def standardize_somatic_vcf_params(wildcards):
-    x=wildcards.dir.split('/')
-    _params={'ref':config['reference']['fasta']}
-    _params['lib']=x[-1]
-    _params['tumor']=x[-2]
-    _params['normal']=PAIRS[_params['tumor']]
-    return _params
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as exc: # Python >2.5
+        if exc.errno==errno.EEXIST and os.path.isdir(path):
+            pass
+
+with open(config['project']['pair_list'],'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+TUMORS=PAIRS.keys()
 
 rule ensemble:
     input: ""
 
 rule somatic_bcftools_norm:
     input:
-        "{dir}/somatic.{vcf}.vcf.gz"
+        "data/work/{lib}/{tumor}/{mode}/somatic.{vcf}.vcf.gz"
     output:
-        "{dir}/somatic.{vcf}.norm.vcf.gz"
+        "data/work/{lib}/{tumor}/{mode}/somatic.{vcf}.norm.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -27,11 +32,14 @@ rule somatic_bcftools_norm:
 
 rule standardize_somatic_vcf:
     input:
-        "{dir}/somatic.{vcf}.norm.vcf.gz"
+        "data/work/{lib}/{tumor}/{mode}/somatic.{vcf}.norm.vcf.gz"
     output:
-        "{dir}/somatic.{vcf}.norm.std.vcf.gz"
+        "data/work/{lib}/{tumor}/{mode}/somatic.{vcf}.norm.std.vcf.gz"
     params:
-        unpack(standardize_somatic_vcf_params)
+        tumor=lambda wildcards: wildcards.tumor
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+        lib=config['resources']['targets_key']
+        mode=lambda wildcards: wildcards.mode
     script:
         "standardize_somatic-vcf.py"
         #"standardize_somatic-vcf.py -T $1 -N $2 -L $lib"
@@ -39,16 +47,54 @@ rule standardize_somatic_vcf:
 #High confidence=n2pass
 rule somatic_bcftools_isec:
     input:
-        mutect="{work_dir}/{tumor}/mutect/somatic.twice_filtered.norm.std.vcf.gz",
-        strelka="{work_dir}/{tumor}/strelka/somatic.raw.norm.std.vcf.gz",
-        vardict="{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.std.vcf.gz",
-        varscan="{work_dir}/{tumor}/varscan/somatic.fpfilter.norm.std.vcf.gz"
+        mutect="data/work/{lib}/{tumor}/mutect/somatic.twice_filtered.norm.std.vcf.gz",
+        strelka="data/work/{lib}/{tumor}/strelka/somatic.raw.norm.std.vcf.gz",
+        vardict="data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.std.vcf.gz",
+        varscan="data/work/{lib}/{tumor}/varscan/somatic.fpfilter.norm.std.vcf.gz"
     params:
-        outdir="{work_dir}/{tumor}/bcftools"
+        outdir="data/work/{lib}/{tumor}/bcftools"
     output:
-        "{work_dir}/{tumor}/bcftools/sites.txt"
+        "data/work/{lib}/{tumor}/bcftools/sites.txt"
     shell:
         "bcftools isec -n+2 -p {params.outdir} {input.mutect} {input.strelka} {input.vardict} {input.varscan}"
         #Additionally created vcfs are private calls.
         #Can be renamed and used.
+
+rule concordant_somatic_calls:
+    input:
+        "data/work/{lib}/{tumor}/bcftools/sites.txt"
+    output:
+        high_conf_writer='data/work/{lib}/{tumor}/bcftools/somatic.high_confidence.vcf.gz',
+        low_conf_writer='data/work/{lib}/{tumor}/bcftools/somatic.low_confidence.vcf.gz',
+        failed_writer='data/work/{lib}/{tumor}/bcftools/somatic.failed_confidence.vcf.gz'
+    params:
+        tumor=lambda wildcards: wildcards.tumor
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+        lib=config['resources']['targets_key']
+    script:
+        "tumor-normal_somatic-ensemble-vcf.py"
+
+rule annotate_confidence_vcf:
+    input:
+        'data/work/{lib}/{tumor}/bcftools/somatic.{confidence}.vcf.gz'
+    output:
+        'data/work/{lib}/{tumor}/bcftools/somatic.{confidence}.hg19_multianno.vcf'
+    params:
+        humandb='$HOME/resources/annovar/humandb/',
+        output_p='data/work/{lib}/{tumor}/annovar/somatic.{confidence}'
+    shell:
+        "table_annovar.pl {input} {params.humandb} --buildver hg19 --vcfinput --outfile {params.output_p} --protocol refGene,cytoband,genomicSuperDups,dbscsnv11,avsnp150,dbnsfp35a,mcap,revel,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,intervar_20180118,icgc21,cosmic84_coding,cosmic84_noncoding,clinvar_20190305 --operation g,r,r,f,f,f,f,f,f,f,f,f,f,f,f,f,f -remove"
+
+rule run_annovartools:
+    input:
+        'data/work/{lib}/{tumor}/bcftools/somatic.{confidence}.hg19_multianno.vcf'
+    output:
+        'data/work/{lib}/{tumor}/bcftools/somatic.{confidence}.hg19_multianno.report.tsv'
+    params:
+        header='/home/bwubb/resources/annovar/ensemble.somatic-annotation-header.20191018.txt',
+        mode='paired',
+        tumor='{tumor}'
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+    script:
+        'annovartootls.v02.py'
 

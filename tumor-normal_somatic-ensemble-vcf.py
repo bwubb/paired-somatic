@@ -23,11 +23,32 @@ def set_build_calls(data,sample):
         _GT=temp_GT[0]
     return vcfpy.Call(sample,vcfpy.OrderedDict([('GT',_GT),('DP',_DP),('AD',_AD),('AAF',_AAF)]))
 
+def get_Args():
+    p=argparse.ArgumentParser()
+    p.add_argument('-T','--tumor',help='Tumor name')
+    p.add_argument('-N','--normal',help='Normal name')
+    p.add_argument('-L','--lib',default='S04380110',help='Lib name in /work dir')
+    argv=p.parse_args()
+    print('Arguments Initialized...')
+    #LOG the run conditions
+    for k,v in vars(argv).items():
+        print(k,':',v)
+    return argv
 
 def main(argv=None):
-    tumor=argv.tumor
-    normal=argv.normal
-    lib=argv.lib
+    try:
+        snakemake
+        #samples file in params
+    except NameError:
+        args=get_Args()
+        tumor=args.tumor
+        normal=args.normal
+        lib=args.lib
+    else:
+        #Better snakemake
+        tumor=snakemake.params['tumor']
+        normal=snakemake.params['normal']
+        lib=snakemake.params['lib']
     
     with vcfpy.Reader.from_path('/home/bwubb/resources/Vcf_files/ensemble-header.GRCh37.20190227_v2.vcf') as _VCFH:
         pass
@@ -94,13 +115,4 @@ def main(argv=None):
     failed_writer.close()
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser()
-    p.add_argument('-T','--tumor',help='Tumor name')
-    p.add_argument('-N','--normal',help='Normal name')
-    p.add_argument('-L','--lib',default='S04380110',help='Lib name in /work dir')
-    argv=p.parse_args()
-    print('Arguments Initialized...')
-    #LOG the run conditions
-    for k,v in vars(argv).items():
-        print(k,':',v)
-    main(argv)
+    main()

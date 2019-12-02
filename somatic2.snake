@@ -48,9 +48,6 @@ rule all_somatic_pass:
         vardictjava=expand("{results_dir}/{tumor}.{targets}.vardict.somatic.twice_filtered.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
         varscan2=expand("{results_dir}/{tumor}.{targets}.varscan2.somatic.fpfilter.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
 
-#rule all_work:
-#    input:
-
 rule valdiate_vcf:
     input:
         "{file}.vcf"

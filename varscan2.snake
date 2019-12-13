@@ -209,7 +209,7 @@ rule VarScan2_somatic_normalized_fpfilter:
         norm="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz",
         clean="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
     params:
-        regions=config['resources']['targets_bedgz'],
+        regions=config['resources']['targets_bedgz']
     shell:
         """
         bcftools norm -m-both {input} | bcftools norm -f /home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta -O z -o {output.norm}

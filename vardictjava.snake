@@ -75,11 +75,12 @@ rule VarDictFilter:
         """
         bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -O z -o {output.somatic} {input}
         tabix -p vcf {output.somatic}
-        bcftools filter --threads {threads} -e '((FORMAT/AF * FORMAT/DP < 6) && ((FORMAT/MQ < 55.0 && FORMAT/NM > 1.0) || (FORMAT/MQ < 60.0 && FORMAT/NM > 2.0) || (FORMAT/DP < 10) || (FORMAT/QUAL < 45)))' -s filter_1 -m + -O z {input} > {output.once}
+        bcftools filter --threads {threads} -e '((FORMAT/AF[0] * FORMAT/DP[0] < 6) && ((FORMAT/MQ[0] < 55.0 && FORMAT/NM[0] > 1.0) || (FORMAT/MQ[0] < 60.0 && FORMAT/NM[0] > 2.0) || (FORMAT/DP[0] < 10)))' -s filter_1 -m + -O z {input} > {output.once}
         tabix -p vcf {output.once}
-        bcftools filter --threads {threads} -e 'FORMAT/AF < 0.2 && FORMAT/QUAL < 55 && INFO/SSF > 0.06' -s filter_2 -m + -O z {output.once} > {output.twice}
+        bcftools filter --threads {threads} -e 'FORMAT/AF[0] < 0.2 && FORMAT/QUAL[0] < 55 && INFO/SSF[0] > 0.06' -s filter_2 -m + -O z {output.once} > {output.twice}
         tabix -p vcf {output.twice}
         """
+        #Dropped || (FORMAT/QUAL < 45)
         #bcftools view -f PASS -i 'INFO/STATUS=="StrongSomatic" || INFO/STATUS=="LikelySomatic"' > somatic
 
 #Maybe filter is only good for somatic?

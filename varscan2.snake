@@ -37,28 +37,11 @@ wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
     results_dir=f"data/final/{config['project']['name']}"
 
-rule collect_all_VarScan2_results:
+rule VarScan2_vcf:
     input:
-        expand("{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.hg19_multianno.vcf",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys()),
-        expand("{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.hg19_multianno.vcf",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys()),
-        expand("{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.hg19_multianno.vcf",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
-rule collect_varscan2_somatic_results:
-    input:
-        raw_calls=expand("{results_dir}/{tumor}.{targets}.varscan2.somatic.raw.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        pass_calls=expand("{results_dir}/{tumor}.{targets}.varscan2.somatic.fpfilter.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
-
-rule collect_VarScan2_loh_results:
-    input:
-        expand("{work_dir}/{tumor}/varscan2/loh.fpfilter.vcf.gz",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
-rule collect_VarScan2_loh_annotation:
-    input:
-        expand("{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.hg19_multianno.vcf",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
-rule collect_VarScan2_germline_annotation:
-    input:
-        expand("{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.hg19_multianno.vcf",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
+        expand("{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys()),
+        expand("{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys()),
+        expand("{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
 rule pair_mpileup:
     input:

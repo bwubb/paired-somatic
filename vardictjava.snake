@@ -36,14 +36,11 @@ wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
     results_dir=f"data/final/{config['project']['name']}"
 
-rule collect_vardict_somatic_results:
+rule VarDict_vcf:
     input:
-        raw_calls=expand("{results_dir}/{tumor}.{targets}.vardict.somatic.raw.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        pass_calls=expand("{results_dir}/{tumor}.{targets}.vardict.somatic.twice_filtered.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("{work_dir}/{tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys()),
+        expand("{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
-rule vardict_target:
-    input:
-        expand("{results_dir}/{tumor}.{targets}.vardict.somatic.twice_filtered.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule run_VarDictJava:#First a more lenient -P val, not sure what
     input:
@@ -81,6 +78,7 @@ rule VarDictFilter:
         tabix -p vcf {output.twice}
         """
         #Dropped || (FORMAT/QUAL < 45)
+        #MAYBE it shouldnt be FORMAT/QUAL but just QUAL
         #bcftools view -f PASS -i 'INFO/STATUS=="StrongSomatic" || INFO/STATUS=="LikelySomatic"' > somatic
 
 #Maybe filter is only good for somatic?
@@ -99,17 +97,53 @@ rule process_VarDict: #split vardict into loh, germline, somatic
         bcftools view -i 'INFO/STATUS==\"Germline\"' -O z -o {output.germline} {input} && tabix -p vcf {output.germline}
         """
 
-rule VarDict_final:
+rule VarDict_somatic_normalized_filtered:
     input:
-        unpack(initial_vardict_results)
+        "{work_dir}/{tumor}/vardict/somatic.twice_filtered.vcf.gz"
     output:
-        raw_calls="{results_dir}/{tumor}.{targets}.vardict.somatic.raw.vcf.gz",
-        pass_calls="{results_dir}/{tumor}.{targets}.vardict.somatic.twice_filtered.pass.vcf.gz"
+        norm="{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz"
     params:
-        regions=config['resources']['targets_bedgz']
-        #-T temp dir for sort
+        regions=config['resources']['targets_bedgz'],
+        ref=ref=config['reference']['fasta']
     shell:
-        """
-        bcftools view -R {params.regions} {input.raw} | bcftools sort -O z -o {output.raw_calls}
-        bcftools view -f PASS -R {params.regions} {input.filtered} | bcftools sort -O z -o {output.pass_calls}
-        """
+    """
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
+        tabix -p vcf {output.norm}
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        tabix -p vcf {output.clean}
+    """
+
+rule VarDict_loh_normalized_filtered:
+    input:
+        "{work_dir}/{tumor}/vardict/loh.twice_filtered.vcf.gz"
+    output:
+        norm="{work_dir}/{tumor}/vardict/loh.twice_filtered.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        ref=ref=config['reference']['fasta']
+    shell:
+    """
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
+        tabix -p vcf {output.norm}
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        tabix -p vcf {output.clean}
+    """
+
+rule VarDict_germline_normalized_filtered:
+    input:
+        "{work_dir}/{tumor}/vardict/germline.twice_filtered.vcf.gz"
+    output:
+        norm="{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        ref=ref=config['reference']['fasta']
+    shell:
+    """
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
+        tabix -p vcf {output.norm}
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        tabix -p vcf {output.clean}
+    """

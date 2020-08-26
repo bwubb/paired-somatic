@@ -1,0 +1,148 @@
+import os
+
+include:"./mutect2_update.snake"
+include:"./strelka2.snake"
+include:"./vardictjava.snake"
+include:"./varscan2.snake"
+
+def annovar_samples(wildcards):
+    return [wildcards.tumor,PAIRS[wildcards.tumor]]
+
+### INIT ###
+
+with open(config['project']['pair_list'],'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+TUMORS=PAIRS.keys()
+#LIB=read lib_tsv
+
+### SNAKEMAKE
+
+rule ensemble:
+    input:
+        expand("data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS)
+
+#New Mutect
+#rule somatic_ensemble:
+#    input:
+#        pass
+
+#rule germline_ensemble:
+#    input:
+#        pass
+
+#High confidence=n2pass
+rule Bcftools_somatic_isec:
+    input:
+        mutect2="data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz",
+        strelka2="data/work/{lib}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.std.vcf.gz",#different dir...
+        vardict="data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz",
+        varscan2="data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
+    params:
+        outdir="data/work/{lib}/{tumor}/bcftools/somatic"
+    output:
+        "data/work/{lib}/{tumor}/bcftools/somatic/sites.txt"
+    shell:
+        "bcftools isec -n+2 -p {params.outdir} {input.mutect2} {input.strelka2} {input.vardict} {input.varscan2}"
+        #Additionally created vcfs are private calls.
+        #Can be renamed and used.
+
+rule concordant_somatic_calls:
+    input:
+        sites="data/work/{lib}/{tumor}/bcftools/somatic/sites.txt",
+        mutect2="data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz",
+        strelka2="data/work/{lib}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.std.vcf.gz",#different dir...
+        vardict="data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz",
+        varscan2="data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
+    output:
+        "data/work/{lib}/{tumor}/bcftools/somatic/somatic.ensemble.vcf.gz"
+        #need bgzip and tabix
+    params:
+        tumor=lambda wildcards: wildcards.tumor,
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        lib=config['resources']['targets_key']
+    shell:
+        "python tumor-normal.ensemble-vcf.py -b {input.sites} --mutect2_vcf {input.mutect2} --strelka2_vcf {input.strelka2} --vardict_vcf {input.vardict} --varscan2_vcf {input.varscan2} -T {params.tumor} -N {params.normal} -L {params.lib}"
+    #script:
+    #    "tumor-normal_ensemble-vcf.py"
+
+rule ANNOVAR_somatic_ensemble_vcf:
+    input:
+        'data/work/{lib}/{tumor}/bcftools/somatic/somatic.ensemble.vcf.gz'
+    output:
+        'data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.vcf.gz'
+    params:
+        humandb='$HOME/resources/annovar/humandb/',
+        output_p='data/work/{lib}/{tumor}/annovar/somatic.ensemble'
+    shell:
+        """
+        tabix -fp vcf {input}
+        table_annovar.pl {input} {params.humandb} --buildver hg19 --vcfinput --outfile {params.output_p} --protocol refGene,cytoband,genomicSuperDups,dbscsnv11,avsnp150,dbnsfp35a,mcap,revel,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,intervar_20180118,icgc21,cosmic84_coding,cosmic84_noncoding,clinvar_20190305 --operation g,r,r,f,f,f,f,f,f,f,f,f,f,f,f,f,f -remove
+        bgzip {params.output_p}.hg19_multianno.vcf
+        tabix -fp vcf {params.output_p}.hg19_multianno.vcf.gz
+        """
+        #modify: params.build [hg19,hg38]
+
+rule run_somatic_annovartools:
+    input:
+        'data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.vcf.gz'
+    output:
+        'data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.report.csv'
+    params:
+        header='/home/bwubb/resources/annovar/ensemble.somatic-annotation-header.20191230.txt',
+        mode='paired',
+        samples=annovar_samples
+    #script:
+    #    'annovartools.v02.py'
+    shell:
+        'python annovartools.v02.py -I {input} -O {output} --header {params.header} -m {params.mode} {params.samples[0]} {params.samples[1]}'
+
+#rule Bcftools_germline-loh_concat:
+#    input:
+#    output:
+#    params:
+#    shell:
+
+#rule Bcftools_germline-loh_isec:
+#    input:
+#        mutect2="data/work/{lib}/{tumor}/mutect2/germline-loh.twice_filtered.norm.clean.std.vcf.gz",
+#        strelka2="data/work/{lib}/{tumor}/strelka2/germline-loh.raw.norm.clean.std.vcf.gz",#different dir...
+#        vardict="data/work/{lib}/{tumor}/vardict/germline-loh.twice_filtered.norm.clean.std.vcf.gz",
+#        varscan2="data/work/{lib}/{tumor}/varscan2/germline-loh.fpfilter.norm.clean.std.vcf.gz"
+#    output:
+#        "data/work/{lib}/{tumor}/bcftools/germline-loh/sites.txt"
+#    params:
+#        outdir="data/work/{lib}/{tumor}/bcftools/germline-loh"
+#    shell:
+#        "bcftools isec -n+2 -p {params.outdir} {input.mutect2} {input.strelka2} {input.vardict} {input.varscan2}"
+        #Additionally created vcfs are private calls.
+        #Can be renamed and used.
+
+#rule concordant_germline-loh_calls:
+#    input:
+#        sites="data/work/{lib}/{tumor}/bcftools/germline-loh/sites.txt",
+#        vardict_vcf="",
+#        varscan2_vcf=""
+#    output:
+#        "file"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key']
+#    script:
+#        "tumor-normal_germline-loh-ensemble-vcf.py"
+#Needs index!
+
+#rule Annovar_germline-loh_vcf:
+#    input:
+#        'data/work/{lib}/{tumor}/bcftools/germline-loh/{confidence}.vcf.gz'
+#    output:
+#        'data/work/{lib}/{tumor}/annovar/germline-loh.{confidence}.hg19_multianno.vcf'
+#    params:
+#        humandb='$HOME/resources/annovar/humandb/',
+#        output_p='data/work/{lib}/{tumor}/annovar/germline-loh.{confidence}'
+#    shell:
+#        """
+#        tabix -fp vcf {input}
+#        table_annovar.pl {input} {params.humandb} --buildver hg19 --vcfinput --outfile {params.output_p} --protocol refGene,cytoband,genomicSuperDups,dbscsnv11,avsnp150,dbnsfp35a,mcap,revel,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,intervar_20180118,icgc21,cosmic84_coding,cosmic84_noncoding,clinvar_20190305 --operation g,r,r,f,f,f,f,f,f,f,f,f,f,f,f,f,f -remove
+#        """

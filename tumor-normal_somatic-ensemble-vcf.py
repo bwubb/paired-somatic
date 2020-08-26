@@ -25,6 +25,7 @@ def set_build_calls(data,sample):
 
 def get_Args():
     p=argparse.ArgumentParser()
+    p.add_Argument('-i','--input',help='sites.txt')
     p.add_argument('-T','--tumor',help='Tumor name')
     p.add_argument('-N','--normal',help='Normal name')
     p.add_argument('-L','--lib',default='S04380110',help='Lib name in /work dir')
@@ -41,11 +42,13 @@ def main(argv=None):
         #samples file in params
     except NameError:
         args=get_Args()
+        input=args.input
         tumor=args.tumor
         normal=args.normal
         lib=args.lib
     else:
         #Better snakemake
+        input=snakemake.input[0]
         tumor=snakemake.params['tumor']
         normal=snakemake.params['normal']
         lib=snakemake.params['lib']
@@ -59,9 +62,9 @@ def main(argv=None):
     #script version
     #then add header_line for tumor_sample and normal_sample
     #Add header line for ##reference=file:/home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta\n
-    high_conf_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic.high_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
-    low_conf_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic.low_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
-    failed_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic.failed_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    high_conf_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic/high_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    low_conf_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic/low_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    failed_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic/failed_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     ####READERS####
     mutect_reader=vcfpy.Reader.from_path(f'data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.std.vcf.gz')
     strelka_reader=vcfpy.Reader.from_path(f'data/work/{lib}/{tumor}/strelka2/somatic.raw.norm.std.vcf.gz')
@@ -71,7 +74,7 @@ def main(argv=None):
     reader_dict={0:{'reader':mutect_reader,'name':'mutect2'},1:{'reader':strelka_reader,'name':'strelka2'},2:{'reader':vardict_reader,'name':'vardict'},3:{'reader':varscan_reader,'name':'varscan2'}}
     #1101
     serialize=operator.methodcaller('serialize')
-    with open(f'data/work/{lib}/{tumor}/bcftools/sites.txt','r') as file:
+    with open(input,'r') as file:
         sites_reader=csv.DictReader(file,delimiter='\t',fieldnames=['CHROM','POS','REF','ALT','BIN'])
         for row in sites_reader:
             bin=list(row['BIN'])

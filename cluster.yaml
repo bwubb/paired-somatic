@@ -1,0 +1,72 @@
+'__default__':
+    'Mem': '6144'
+    'nt': '1'
+    'Job': '{wildcards.tumor}_{rule}'
+    'eo': 'logs/cluster/{wildcards.tumor}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.tumor}/{rule}.o'
+    'usage': '"span [hosts=1] rusage [mem=6144]"'
+raw_mpileup:
+    'Job': '{wildcards.sample}_{rule}'
+    'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'
+run_Mutect2:
+    'Mem': '18432'
+    'nt': '4'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+run_VarDictJava:
+    'Mem': '18432'
+    'nt': '4'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+run_VarScan2:
+    'Mem': '18432'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+run_Manta:
+    'Mem': '18432'
+    'nt': '4'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+run_Strelka2:
+    'Mem': '18432'
+    'nt': '4'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+HaplotypeCaller_byChr:
+    'Mem': '18432'
+    'Job': '{wildcards.sample}_{wildcards.chr}_{rule}'
+    'eo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.chr}.o'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+GenomicsDBImport_byChr:
+    'Mem': '18432'
+    'Job': '{wildcards.project}_{wildcards.chr}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+GenotypeGVCFs_byChr:
+    'Mem': '18432'
+    'Job': '{wildcards.project}_{wildcards.chr}_{rule}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+CombineGVCFs_normals:
+    'Mem': '18432'
+    'Job': '{wildcards.project}_{rule}_{wildcards.chr}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+GenotypeGVCF_normals:
+    'Mem': '18432'
+    'Job': '{wildcards.project}_{rule}_{wildcards.chr}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.chr}.o'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+concat_vcf_target_restricted:
+    'Mem': '18432'
+    'Job': '{wildcards.project}_{rule}_{wildcards.targets}'
+    'eo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.targets}.e'
+    'oo': 'logs/cluster/{wildcards.project}/{rule}_{wildcards.targets}.o'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'
+select_normal_sample:
+    'Mem': '18432'
+    'Job': '{wildcards.sample}_{rule}_{wildcards.targets}'
+    'eo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.targets}.e'
+    'oo': 'logs/cluster/{wildcards.sample}/{rule}_{wildcards.targets}.o'
+    'usage': '"span [hosts=1] rusage [mem=18432]"'

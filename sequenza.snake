@@ -1,12 +1,19 @@
-import errno
 import os
 
-def mkdir_p(path):
-    try:
-        os.makedirs(path)
-    except OSError as exc: # Python >2.5
-        if exc.errno==errno.EEXIST and os.path.isdir(path):
-            pass
+### INIT ###
+
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
+    for sample in SAMPLES:
+        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
+
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+with open(config['project']['bam_list'],'r') as b:
+    BAMS=dict(line.split('\t') for line in b.read().splitlines())
+
+### FUNCTIONS ###
 
 def paired_bams(wildcards):
     ref=config['reference']['key']
@@ -14,37 +21,14 @@ def paired_bams(wildcards):
     normal=PAIRS[wildcards.tumor]
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
-#sample_list in config, default is samples.list
-with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
-    SAMPLES=i.read().splitlines()
-
-with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
-    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
-
-#checking for bams:
-for sample in SAMPLES:
-    mkdir_p('logs/cluster/%s' % sample)
-
-if config['project'].get('bam_list',False):
-    with open(config['project']['bam_list'],'r') as b:
-        BAMS=dict(line.split('\t') for line in b.read().splitlines())
-else:
-    BAMS=False
-    missing_bam=0
-    for sample in SAMPLES:
-        if not os.path.isfile('bam_input/final/{sample}/{reference}/{sample}.ready.bam'.format(sample=sample,reference=config['resources']['reference']['key'])):
-            print('WARNING: < %s > Missing BAM!' % sample)
-            missing_bam+=1
-        if missing_bam>0:
-            raise
+### SNAKEMAKE ###
 
 wildcard_constraints:
-    work_dir=f"data/work/{config['resources']['targets_key']}",
-    results_dir=f"data/final/{config['project']['name']}"
+    work_dir=f"data/work/{config['resources']['targets_key']}"
 
-rule collect_sequenza_results:
+rule collect_sequenza:
     input:
-        expand("{work_dir}/{tumor}/sequenza/{tumor}_segments.txt",work_dir=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_segments.txt",lib=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
 
 #This can be parallelized; divided into chr.seqz.gz
@@ -56,7 +40,7 @@ rule collect_sequenza_results:
 
 #awk 'FNR==1 && NR!=1 { while (/^HRD/) getline; } 1 {print}' *hrd.txt
 
-rule bam2seqz:
+rule Sequenza_bam2seqz:
     input:
         unpack(paired_bams)
     params:
@@ -70,7 +54,7 @@ rule bam2seqz:
         #CHECK IF THE FILE IS EMPTY
 #Make workflow to create gc file
 
-rule seqz_bin:
+rule Sequenza_bin:
     input:
         "{work_dir}/{tumor}/sequenza/seqz.gz"
     output:
@@ -82,7 +66,7 @@ rule seqz_bin:
         "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
 
 #need to remove Y MT M
-rule seqz_extract:
+rule Sequenza_extract:
     input:
         "{work_dir}/{tumor}/sequenza/seqz.small.gz"
     output:
@@ -95,7 +79,7 @@ rule seqz_extract:
     script:
         "sequenza-snakemake.R"
 
-rule sequenza_hrd:
+rule Sequenza_hrd:
     input:
         segments="{work_dir}/{tumor}/sequenza/{tumor}_segments.txt",
         confints="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt",

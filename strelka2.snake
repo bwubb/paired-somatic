@@ -1,25 +1,19 @@
-import errno
 import os
 
-def mkdir_p(path):
-    try:
-        os.makedirs(path)
-    except OSError as exc: # Python >2.5
-        if exc.errno==errno.EEXIST and os.path.isdir(path):
-            pass
+### INIT ###
 
-with open(config.get('project',{}).get('sample_list','samples.list'),'r') as s:
-    SAMPLES=s.read().splitlines()
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
+    for sample in SAMPLES:
+        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
 with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
-for sample in SAMPLES:
-    mkdir_p('logs/cluster/%s' % sample)
-#checking for bams:
-
 with open(config['project']['bam_list'],'r') as b:
-        BAMS=dict(line.split('\t') for line in b.read().splitlines())
+    BAMS=dict(line.split('\t') for line in b.read().splitlines())
+
+### FUNCTIONS ###
 
 def paired_bams(wildcards):
     ref=config['reference']['key']
@@ -27,48 +21,60 @@ def paired_bams(wildcards):
     normal=PAIRS[wildcards.tumor]
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
-def initial_strelka2_results(wildcards):
-    return {'raw':f"data/work/{wildcards.targets}/{wildcards.tumor}/strelka2/somatic.raw.vcf.gz"}
+### SNAKEMAKE ###
 
 wildcard_constraints:
-    work_dir=f"data/work/{config['resources']['targets_key']}",
-    results_dir=f"data/final/{config['project']['name']}"
+    work_dir=f"data/work/{config['resources']['targets_key']}"
 
-rule collect_strelka2_somatic_results:
+rule collect_strelka2:
     input:
-        raw_calls=expand("{results_dir}/{tumor}.{targets}.strelka2.somatic.raw.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        pass_calls=expand("{results_dir}/{tumor}.{targets}.strelka2.somatic.pass.vcf.gz",results_dir=f"data/final/{config['project']['name']}",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
-rule run_Manta:
+rule write_Manta:
     input:
         unpack(paired_bams)
     output:
-        #bam output
+        temp("{work_dir}/{tumor}/manta/runWorkflow.py")
+    params:
+        runDir="{work_dir}/{tumor}/manta",
+        reference=config['reference']['fasta'],
+        bedgz=config['resources']['targets_bedgz']
+    shell:
+        "$HOME/software/manta/bin/configManta.py --normalBam {input.normal} --tumorBam {input.tumor} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.runDir}"
+    
+rule run_Manta:
+    input:
+        "{work_dir}/{tumor}/manta/runWorkflow.py"
+    output:
         "{work_dir}/{tumor}/manta/results/variants/candidateSmallIndels.vcf.gz",
         "{work_dir}/{tumor}/manta/results/variants/candidateSV.vcf.gz",
         "{work_dir}/{tumor}/manta/results/variants/diploidSV.vcf.gz",
         "{work_dir}/{tumor}/manta/results/variants/somaticSV.vcf.gz"
-    params:
-        workdir="{work_dir}/{tumor}/manta",
-        reference=config['reference']['fasta'],
-        bedgz=config['resources']['targets_bedgz']
     threads:
         4
     shell:
-        """
-        $HOME/software/manta/bin/configManta.py --normalBam {input.normal} --tumorBam {input.tumor} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.workdir}
-        {params.workdir}/runWorkflow.py -m local -j {threads}
-        """
+        "{input} -m local -j {threads}"
 
-rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont work if the runWorkflow.py script already exists.
+rule write_Strelka2:
     input:
         unpack(paired_bams),
         indels="{work_dir}/{tumor}/manta/results/variants/candidateSmallIndels.vcf.gz"
     output:
-        #bam output
+        temp("{work_dir}/{tumor}/strelka2/runWorkflow.py")
+    params:
+        runDir="{work_dir}/{tumor}/strelka2",
+        reference=config['reference']['fasta'],
+        bedgz=config['resources']['targets_bedgz']
+    shell:
+        "$HOME/software/strelka/bin/configureStrelkaSomaticWorkflow.py --normalBam {input.normal} --tumorBam {input.tumor} --indelCandidates {input.indels} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.runDir}"
+
+rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont work if the runWorkflow.py script already exists.
+    input:
+        "{work_dir}/{tumor}/strelka2/runWorkflow.py"
+    output:
         snvs="{work_dir}/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",#not snps
         indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz",
-        raw="{work_dir}/{tumor}/strelka2/somatic.raw.vcf.gz"
+        raw="{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.vcf.gz"
     params:
         workdir="{work_dir}/{tumor}/strelka2",
         reference=config['reference']['fasta'],
@@ -77,24 +83,40 @@ rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont 
         4
     shell:
         """
-        $HOME/software/strelka/bin/configureStrelkaSomaticWorkflow.py --normalBam {input.normal} --tumorBam {input.tumor} --indelCandidates {input.indels} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.workdir}
-        {params.workdir}/runWorkflow.py -m local -j {threads}
+        {input} -m local -j {threads}
         bcftools concat -a --threads {threads} {output.snvs} {output.indels} | bcftools sort -O z -o {output.raw}
-        tabix -p vcf {output.raw}
+        tabix -f -p vcf {output.raw}
         """
         #can add -m, --max-mem <float>[kMG]    maximum memory to use [768M] for sort
 
-rule Strelka2_final:
+rule Strelka2_somatic_normalized:
     input:
-        unpack(initial_strelka2_results)
+        "{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.vcf.gz"
     output:
-        raw_calls="{results_dir}/{tumor}.{targets}.strelka2.somatic.raw.vcf.gz",
-        pass_calls="{results_dir}/{tumor}.{targets}.strelka2.somatic.pass.vcf.gz"
+        norm="{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.vcf.gz"
     params:
-        regions=config['resources']['targets_bedgz']
-        #-T temp dir for sort
+        regions=config['resources']['targets_bedgz'],
+        ref=config['reference']['fasta']
     shell:
         """
-        bcftools view -R {params.regions} {input.raw} | bcftools sort -O z -o {output.raw_calls}
-        bcftools view -f PASS -R {params.regions} {input.raw} | bcftools sort -O z -o {output.pass_calls}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
+        tabix -f -p vcf {output.norm}
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        tabix -f -p vcf {output.clean}
         """
+
+rule Strelka2_somatic_standardized:
+    input:
+        "{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.vcf.gz"
+    output:
+        "{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.std.vcf.gz"
+    params:
+        tumor=lambda wildcards: wildcards.tumor,
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        lib=config['resources']['targets_key'],
+        mode='strelka2'
+    shell:
+        "python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}"
+#    script:
+#        "standardize_vcf.py"

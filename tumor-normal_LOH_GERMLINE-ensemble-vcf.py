@@ -62,10 +62,10 @@ def main(argv=None):
     #high_conf_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic.high_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     #low_conf_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic.low_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     #failed_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/somatic.failed_confidence.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
-    outfile_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/loh_germline/all_loh_germline_variants.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
+    outfile_writer=vcfpy.Writer.from_path(f'data/work/{lib}/{tumor}/bcftools/loh_germline/loh_germline_variants.vcf.gz',vcfpy.Header(_VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     ####READERS####
-    vardict_reader=vcfpy.Reader.from_path(f'data/work/{lib}/{tumor}/vardict/loh_germline.twice_filtered.norm.std.vcf.gz')
-    varscan_reader=vcfpy.Reader.from_path(f'data/work/{lib}/{tumor}/varscan2/raw.LOH-Germline.norm.std.vcf.gz')
+    vardict_reader=vcfpy.Reader.from_path(f'data/work/{lib}/{tumor}/vardict/loh_germline.twice_filtered.norm.clean.std.vcf.gz')
+    varscan_reader=vcfpy.Reader.from_path(f'data/work/{lib}/{tumor}/varscan2/loh_germline.fpfilter.norm.clean.std.vcf.gz')
     #Can I read this from a yaml or json?
     reader_dict={0:{'reader':vardict_reader,'name':'vardict'},1:{'reader':varscan_reader,'name':'varscan2'}}
     #1101

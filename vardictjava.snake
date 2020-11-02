@@ -116,7 +116,10 @@ rule VarDict_somatic_standardized:
         lib=config['resources']['targets_key'],
         mode='vardict'
     shell:
-        "python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}"
+        """
+        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+        tabix -fp vcf {output}
+        """
 #    script:
 #        "standardize_vcf.py"
 
@@ -147,8 +150,11 @@ rule VarDict_loh_standardized:
         normal=lambda wildcards: PAIRS[wildcards.tumor],
         lib=config['resources']['targets_key'],
         mode='vardict'
-    script:
-        "standardize_vcf.py"
+    shell:
+        """
+        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+        tabix -fp vcf {output}
+        """
 
 rule VarDict_germline_normalized:
     input:
@@ -177,5 +183,8 @@ rule VarDict_germline_standardized:
         normal=lambda wildcards: PAIRS[wildcards.tumor],
         lib=config['resources']['targets_key'],
         mode='vardict'
-    script:
-        "standardize_vcf.py"
+    shell:
+        """
+        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+        tabix -fp vcf {output}
+        """

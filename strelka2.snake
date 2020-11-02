@@ -117,6 +117,9 @@ rule Strelka2_somatic_standardized:
         lib=config['resources']['targets_key'],
         mode='strelka2'
     shell:
-        "python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}"
+        """
+        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+        tabix -fp vcf {output}
+        """
 #    script:
 #        "standardize_vcf.py"

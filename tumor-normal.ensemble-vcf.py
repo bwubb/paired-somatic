@@ -71,7 +71,7 @@ class ConcordantCall(object):
             raise
     
     def update(self,caller,ofs):
-        if getattr(self,caller,'.')=='.' and ofs=='PASS':
+        if getattr(self,caller,'.')=='.' and ofs==['PASS']:
             self.NumPASS+=1
         setattr(self,caller,ofs)
     
@@ -83,18 +83,21 @@ class ConcordantCall(object):
             for k in self.FORMAT:
                 self.tumor.data[k]=calls[0].data[k]
                 self.normal.data[k]=calls[1].data[k]
+        elif self.tumor.data['GT']=='0/0' and calls[0].data['GT']!='0/0':
+            #Overwrite HOM_REF is possible
+            for k in self.FORMAT:
+                self.tumor.data[k]=calls[0].data[k]
+                self.normal.data[k]=calls[1].data[k]
+        else:
+            pass
     
     def set_GT_CONFLICT(self):
-        if len(set(self.GT_check.values()))>0:
+        if len(set(self.GT_check.values()))>1:
             d=defaultdict(list)
             for k,v in self.GT_check.items():
                 d[v].append(k)
-            #A%2CB%3AC
             #A,B:C
-            #self.GT_CONFLICT='%3A'.join(['%2C'.join(v) for v in d.values()])
             self.GT_CONFLICT=':'.join([','.join(v) for v in d.values()])
-            #print(self.GT_CONFLICT)
-            #verbose output
         else:
             self.GT_CONFLICT='NO_CONFLICT'
     
@@ -136,11 +139,13 @@ def parse_arguments():
     p.add_argument('-b','--sites',help='bcftools isec sites.txt')
     p.add_argument('-T','--tumor',help='Tumor name')
     p.add_argument('-N','--normal',help='Normal name')
+    p.add_argument('-o','--out_fp',help='Outfile path and name')
     p.add_argument('--mutect2_vcf',help='path to mutect2.norm.clean.std.vcf.gz')
     p.add_argument('--strelka2_vcf',help='path to strelka2.norm.clean.std.vcf.gz')
     p.add_argument('--vardict_vcf',help='path to vardict.norm.clean.std.vcf.gz')
     p.add_argument('--varscan2_vcf',help='path to varscan2.norm.clean.std.vcf.gz')
     p.add_argument('-L','--lib',default='S04380110',help='Lib name in /work dir')
+    
     #p.add_Argument('--yaml',help='yaml info')
     return vars(p.parse_args())
 
@@ -150,6 +155,7 @@ def parse_snakemake():
     argv['tumor']=snakemake.params['tumor']
     argv['normal']=snakemake.params['normal']
     argv['lib']=snakemake.params['lib']
+    argv['out_fp']=snakemake.output
     argv['mutect2_vcf']=snakemake.input['mutect2_vcf']
     argv['strelka2_vcf']=snakemake.input['strelka2_vcf']
     argv['vardict_vcf']=snakemake.input['vardict_vcf']
@@ -169,7 +175,7 @@ def main(argv=None):
     #Others mentioned above
     tumor=argv['tumor']
     normal=argv['normal']
-    OUTFILE=os.path.join(os.path.dirname(os.path.abspath(argv['sites'])),'somatic.ensemble.vcf')
+    OUTFILE=argv['out_fp']
     passed_writer=vcfpy.Writer.from_path(OUTFILE,vcfpy.Header(VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     #failed_writer=vcfpy.Writer.from_path(f'FAILFILE',vcfpy.Header(VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     ####READERS####
@@ -182,6 +188,7 @@ def main(argv=None):
     CALLERS=[]
     for CALLER in AVAILABLE_METHODS:
         if eval(f'argv["{CALLER}_vcf"]')!=None:
+            #print(argv[f"{CALLER}_vcf"])
             assert(os.path.isfile(eval(f'argv["{CALLER}_vcf"]')))
             #This assert can be replaced with FileNotFound or something. Or not.
             exec(f'{CALLER}_reader=vcfpy.Reader.from_path(argv["{CALLER}_vcf"])')
@@ -201,10 +208,12 @@ def main(argv=None):
                     #Can I yield these?
                     for record in reader_dict[i]['reader'].fetch(f"{row['CHROM']}:{row['POS']}-{row['POS']}"):
                         if any([record.REF!=row['REF'],record.ALT[0].value!=row['ALT']]):#REF ALTcheck
+                            #print("I continued",record.REF,row['REF'],record.ALT[0].value,row['ALT'])
                             continue
                         #Good place for custom exceptions
                         #Verbose output
                         Build.update(record.INFO['CALLER'].upper(),record.INFO['OFS'])
+                        #print(Build.NumPASS)
                         Build.add_gt(record.INFO['CALLER'].upper(),record.calls)
                         #Check if calls exist and if any FORMAT if tumor DP is 0.
             else:#Always wanted to use else with for loop

@@ -28,7 +28,7 @@ wildcard_constraints:
 
 rule collect_sequenza:
     input:
-        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_segments.txt",lib=f"data/work/{config['resources']['targets_key']}",tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_segments.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
 
 #This can be parallelized; divided into chr.seqz.gz
@@ -45,7 +45,8 @@ rule Sequenza_bam2seqz:
         unpack(paired_bams)
     params:
         ref=config['reference']['fasta'],
-        gc="$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"#different file for tcga Homo_sapien_assembly19
+        gc=config['reference']['gc_wiggle']
+        #"$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"#different file for tcga Homo_sapien_assembly19
     output:
         "{work_dir}/{tumor}/sequenza/seqz.gz"
     shell:

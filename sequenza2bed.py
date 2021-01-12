@@ -18,32 +18,35 @@ def get_snake():
 
 def format_row(row,ucsc=False):
     #print(row)
-    start=int(row['start.pos'])-1
-    end=int(row['end.pos'])
     try:
-        length=end-start+1
+        start=int(row['start.pos'])-1
+        end=int(row['end.pos'])
+        try:
+            length=end-start+1
+        except ValueError:
+            length='.'
+        type=[]
+        if any([row['A']=='0',row['B']=='0']):
+            type+=['loh']
+        if int(row['CNt'])>4:
+            type+=['amp']
+        elif int(row['CNt'])>2 and int(row['CNt'])<=4:
+            type+=['gain']
+        elif int(row['CNt'])<2 and int(row['CNt'])>=1:
+            type+=['loss']
+        elif int(row['CNt'])<1:
+            type+=['del']
+        elif int(row['CNt'])==2:
+            type+=['neutral']
+        else:
+            type+=['unknown']
+        name=f"{length}bp;{';'.join(type)};A{row['A']};B{row['B']}"
+        score=f"{int(row['CNt'])*100}"
+        strand="+"
+        bed_row={'chrom':row['chromosome'],'chromStart':f"{start}",'chromEnd':f"{end}",'name':f"{name}",'score':f"{score}",'strand':strand}
+        #print(bed_row)
     except ValueError:
-        length='.'
-    type=[]
-    if any([row['A']=='0',row['B']=='0']):
-        type+=['loh']
-    if int(row['CNt'])>4:
-        type+=['amp']
-    elif int(row['CNt'])>2 and int(row['CNt'])<=4:
-        type+=['gain']
-    elif int(row['CNt'])<2 and int(row['CNt'])>=1:
-        type+=['loss']
-    elif int(row['CNt'])<1:
-        type+=['del']
-    elif int(row['CNt'])==2:
-        type+=['neutral']
-    else:
-        type+=['unknown']
-    name=f"{length}bp;{';'.join(type)};A{row['A']};B{row['B']}"
-    score=f"{int(row['CNt'])*100}"
-    strand="+"
-    bed_row={'chrom':row['chromosome'],'chromStart':f"{start}",'chromEnd':f"{end}",'name':f"{name}",'score':f"{score}",'strand':strand}
-    #print(bed_row)
+        return None
     return bed_row
 
 def main(argv=None):
@@ -56,7 +59,9 @@ def main(argv=None):
             reader=csv.DictReader(infile,delimiter='\t')
             writer=csv.DictWriter(bed_file,delimiter='\t',fieldnames=bed_fields,lineterminator='\n')
             for row in reader:
-                writer.writerow(format_row(row))
+                out_row=format_row(row)
+                if out_row!=None:
+                    writer.writerow(out_row)
 
 ###Additional Feature, LPP filtering
 

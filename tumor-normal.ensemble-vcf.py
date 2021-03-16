@@ -21,9 +21,6 @@ from collections import defaultdict
 #merge records
 #write record
 
-#I may want to switch to a class objects
-#Holding reader names and file objects, and specific methods for writing values and checking entries.
-#Future options to remove unused lines.
 class ConcordantCall(object):
     def __init__(self,fields,tumor,normal):
         '''
@@ -117,7 +114,7 @@ class ConcordantCall(object):
         self.set_GT_CONFLICT()
         self.set_INFO()
         return vcfpy.Record(self.CHROM,int(self.POS),self.ID,self.REF,self.ALT,self.QUAL,self.FILTER,self.INFO,self.FORMAT,[self.tumor,self.normal])
-    
+
 def set_build_calls(data,sample):
     temp_GT=[x['GT'] for x in data]
     _DP=max([x['DP'] for x in data])
@@ -144,23 +141,9 @@ def parse_arguments():
     p.add_argument('--strelka2_vcf',help='path to strelka2.norm.clean.std.vcf.gz')
     p.add_argument('--vardict_vcf',help='path to vardict.norm.clean.std.vcf.gz')
     p.add_argument('--varscan2_vcf',help='path to varscan2.norm.clean.std.vcf.gz')
-    p.add_argument('-L','--lib',default='S04380110',help='Lib name in /work dir')
-    
+    p.add_argument('-L','--lib',default='S04380110',help='Lib name in work dir')
     #p.add_Argument('--yaml',help='yaml info')
     return vars(p.parse_args())
-
-def parse_snakemake():
-    argv={}
-    argv['sites']=snakemake.input['sites']
-    argv['tumor']=snakemake.params['tumor']
-    argv['normal']=snakemake.params['normal']
-    argv['lib']=snakemake.params['lib']
-    argv['out_fp']=snakemake.output
-    argv['mutect2_vcf']=snakemake.input['mutect2_vcf']
-    argv['strelka2_vcf']=snakemake.input['strelka2_vcf']
-    argv['vardict_vcf']=snakemake.input['vardict_vcf']
-    argv['varscan2_vcf']=snakemake.input['varscan2_vcf']
-    return argv
 
 def main(argv=None):
     #LOG the run conditions
@@ -171,7 +154,7 @@ def main(argv=None):
     #files
     #script version
     #then add header_line for tumor_sample and normal_sample
-    #Add header line for ##reference=file:/home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta\n
+    #Add header line for ##reference=file:human_g1k_v37.fasta\n
     #Others mentioned above
     tumor=argv['tumor']
     normal=argv['normal']
@@ -179,7 +162,8 @@ def main(argv=None):
     passed_writer=vcfpy.Writer.from_path(OUTFILE,vcfpy.Header(VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     #failed_writer=vcfpy.Writer.from_path(f'FAILFILE',vcfpy.Header(VCFH.header.lines,vcfpy.SamplesInfos([tumor,normal])))
     ####READERS####
-    '''Here we look for the files given.
+    '''
+    Here we look for the files given.
     If the file exists, a reader object is made, eg. mutect2_reader
     At the end we define a dictionary of reader objects.
     ##yaml option??##
@@ -188,7 +172,6 @@ def main(argv=None):
     CALLERS=[]
     for CALLER in AVAILABLE_METHODS:
         if eval(f'argv["{CALLER}_vcf"]')!=None:
-            #print(argv[f"{CALLER}_vcf"])
             assert(os.path.isfile(eval(f'argv["{CALLER}_vcf"]')))
             #This assert can be replaced with FileNotFound or something. Or not.
             exec(f'{CALLER}_reader=vcfpy.Reader.from_path(argv["{CALLER}_vcf"])')
@@ -208,12 +191,10 @@ def main(argv=None):
                     #Can I yield these?
                     for record in reader_dict[i]['reader'].fetch(f"{row['CHROM']}:{row['POS']}-{row['POS']}"):
                         if any([record.REF!=row['REF'],record.ALT[0].value!=row['ALT']]):#REF ALTcheck
-                            #print("I continued",record.REF,row['REF'],record.ALT[0].value,row['ALT'])
                             continue
                         #Good place for custom exceptions
                         #Verbose output
                         Build.update(record.INFO['CALLER'].upper(),record.INFO['OFS'])
-                        #print(Build.NumPASS)
                         Build.add_gt(record.INFO['CALLER'].upper(),record.calls)
                         #Check if calls exist and if any FORMAT if tumor DP is 0.
             else:#Always wanted to use else with for loop
@@ -224,7 +205,7 @@ def main(argv=None):
 #                else:
 #                    failed_writer.write_record(Build.outrecord())
     passed_writer.close()
-#    failed_writer.close()
+    #failed_writer.close()
     #I guess I should use subprocess, or at least os.popen?
     os.system(f'bgzip -f {OUTFILE}')
     os.system(f'tabix -fp vcf {OUTFILE}.gz')

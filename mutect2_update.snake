@@ -130,5 +130,3 @@ rule Mutect2_somatic_standardized:
         python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
         tabix -fp vcf {output}
         """
-    #script:
-    #    "standardize_vcf.py"

@@ -1,0 +1,8 @@
+1. filter annovar-annotated variants by AAD and Popfreqmax (script: filter_MutSigCVvariants_byTumor.py)
+2. convert Mutsigcv-filtered tsv to vcf (tsv2vcf.py)
+
+3. Annotate vcf with vep and convert to maf (all using vcf2maf; script: runvcf2maf.sh) by tumor
+4. Convert maf to mutation table format, by tumor (script: maf2mutationTable.py)
+5. Compile mutation tables by cohort (script: compile_mutationTables_byCohort.py) --> resulting files are inputs for MutSigCV
+
+6. Run MutSigCV with your mutation table cohort file(s) and mutation type dictionary (attached). You'll also need to upload a coverage file of your own at this point OR you can use the coverage file linked in the txt file (attached)

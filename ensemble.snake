@@ -14,50 +14,43 @@ with open(config['project']['pair_list'],'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
 TUMORS=PAIRS.keys()
-#LIB=read lib_tsv
 
 ### SNAKEMAKE
 
-rule ensemble:
+rule all_ensemble:
     input:
-        expand("data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS)
+        expand("data/work/{lib}/{tumor}/annovar/{variant}.ensemble.hg19_multianno.report.tsv",variant=['somatic','germline-loh'],lib=config['resources']['targets_key'],tumor=TUMORS)
 
-#New Mutect
-#rule somatic_ensemble:
-#    input:
-#        pass
-
-rule germline_loh_ensemble:
+rule somatic_ensemble:
     input:
-        expand("data/work/{lib}/{tumor}/annovar/germline-loh.ensemble.hg19_multianno.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS)
+        expand("data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.report.tsv",lib=config['resources']['targets_key'],tumor=TUMORS)
 
+rule germline_ensemble:
+    input:
+        expand("data/work/{lib}/{tumor}/annovar/germline-loh.ensemble.hg19_multianno.report.tsv",lib=config['resources']['targets_key'],tumor=TUMORS)
 
-#temp switch to data/final
 rule Bcftools_somatic_isec:
     input:
-        mutect2="data/final/{lib}/{tumor}/mutect2/{tumor}.somatic.filtered.norm.clean.std.vcf.gz",
-        strelka2="data/final/{lib}/{tumor}/strelka2/{tumor}.somatic.raw.norm.clean.std.vcf.gz",
-        vardict="data/final/{lib}/{tumor}/vardict/{tumor}.somatic.twice_filtered.norm.clean.std.vcf.gz",
-        varscan2="data/final/{lib}/{tumor}/varscan2/{tumor}.somatic.fpfilter.norm.clean.std.vcf.gz"
+        mutect2="data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz",
+        strelka2="data/work/{lib}/{tumor}/strelka2/somatic.norm.clean.std.vcf.gz",
+        vardict="data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz",
+        varscan2="data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
     params:
         outdir="data/work/{lib}/{tumor}/bcftools/somatic"
     output:
         "data/work/{lib}/{tumor}/bcftools/somatic/sites.txt"
     shell:
         "bcftools isec -n+2 -p {params.outdir} {input.mutect2} {input.strelka2} {input.vardict} {input.varscan2}"
-        #Additionally created vcfs are private calls.
-        #Can be renamed and used.
 
 rule concordant_somatic_calls:
     input:
         sites="data/work/{lib}/{tumor}/bcftools/somatic/sites.txt",
-        mutect2="data/final/{lib}/{tumor}/mutect2/{tumor}.somatic.filtered.norm.clean.std.vcf.gz",
-        strelka2="data/final/{lib}/{tumor}/strelka2/{tumor}.somatic.raw.norm.clean.std.vcf.gz",#different dir...
-        vardict="data/final/{lib}/{tumor}/vardict/{tumor}.somatic.twice_filtered.norm.clean.std.vcf.gz",
-        varscan2="data/final/{lib}/{tumor}/varscan2/{tumor}.somatic.fpfilter.norm.clean.std.vcf.gz"
+        mutect2="data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz",
+        strelka2="data/work/{lib}/{tumor}/strelka2/somatic.norm.clean.std.vcf.gz",
+        vardict="data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz",
+        varscan2="data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
     output:
         "data/work/{lib}/{tumor}/bcftools/somatic/somatic.ensemble.vcf.gz"
-        #need bgzip and tabix
     params:
         tumor=lambda wildcards: wildcards.tumor,
         normal=lambda wildcards: PAIRS[wildcards.tumor],
@@ -65,12 +58,8 @@ rule concordant_somatic_calls:
         outfile="data/work/{lib}/{tumor}/bcftools/somatic/somatic.ensemble.vcf"
     shell:
         """
-        python3 tumor-normal.ensemble-vcf.py -b {input.sites} -o {params.outfile} --mutect2_vcf {input.mutect2} --strelka2_vcf {input.strelka2} --vardict_vcf {input.vardict} --varscan2_vcf {input.varscan2} -T {params.tumor} -N {params.normal} -L {params.lib}
-        bgzip {params.outfile}
-        tabix -f -p vcf {output}
+        python tumor-normal.ensemble-vcf.py -b {input.sites} -o {params.outfile} --mutect2_vcf {input.mutect2} --strelka2_vcf {input.strelka2} --vardict_vcf {input.vardict} --varscan2_vcf {input.varscan2} -T {params.tumor} -N {params.normal} -L {params.lib}
         """
-    #script:
-    #    "tumor-normal_ensemble-vcf.py"
 
 rule ANNOVAR_somatic_ensemble_vcf:
     input:
@@ -87,21 +76,18 @@ rule ANNOVAR_somatic_ensemble_vcf:
         bgzip {params.output_p}.hg19_multianno.vcf
         tabix -fp vcf {params.output_p}.hg19_multianno.vcf.gz
         """
-        #modify: params.build [hg19,hg38]
 
 rule run_somatic_annovartools:
     input:
         'data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.vcf.gz'
     output:
-        'data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.report.csv'
+        'data/work/{lib}/{tumor}/annovar/somatic.ensemble.hg19_multianno.report.tsv'
     params:
         header='/home/bwubb/resources/annovar/ensemble.somatic-annotation-header.20200827.txt',
         mode='paired',
         samples=annovar_samples
-    #script:
-    #    'annovartools.v02.py'
     shell:
-        'python3 annovartools.v02.py -I {input} -O {output} --header {params.header} -m {params.mode} {params.samples}'
+        'python annovartools.v03.py -I {input} -O {output} --header {params.header} -m {params.mode} {params.samples}'
 
 
 rule Bcftools_germline_loh_concat:
@@ -136,7 +122,6 @@ rule Bcftools_germline_loh_isec:
         tabix -f -p vcf {input.varscan2}
         bcftools isec -n+1 -p {params.outdir} {input.vardict} {input.varscan2}
         """
-        
         #Additionally created vcfs are private calls.
         #Can be renamed and used.
 
@@ -156,7 +141,7 @@ rule concordant_germline_loh_calls:
         """
         tabix -f -p vcf {input.vardict}
         tabix -f -p vcf {input.varscan2}
-        python3.6 tumor-normal.ensemble-vcf.py -b {input.sites} -o {params.outfile} --vardict_vcf {input.vardict} --varscan2_vcf {input.varscan2} -T {params.tumor} -N {params.normal} -L {params.lib}
+        python tumor-normal.ensemble-vcf.py -b {input.sites} -o {params.outfile} --vardict_vcf {input.vardict} --varscan2_vcf {input.varscan2} -T {params.tumor} -N {params.normal} -L {params.lib}
         """
 
 rule ANNOVAR_germline_loh_ensemble_vcf:
@@ -180,13 +165,13 @@ rule run_germline_loh_annovartools:
     input:
         'data/work/{lib}/{tumor}/annovar/germline-loh.ensemble.hg19_multianno.vcf.gz'
     output:
-        'data/work/{lib}/{tumor}/annovar/germline-loh.ensemble.hg19_multianno.report.csv'
+        'data/work/{lib}/{tumor}/annovar/germline-loh.ensemble.hg19_multianno.report.tsv'
     params:
         header='/home/bwubb/resources/annovar/ensemble.somatic-annotation-header.20200827.txt',
         mode='paired',
         samples=annovar_samples
     shell:
-        'python3 annovartools.v02.py -I {input} -O {output} --header {params.header} -m {params.mode} {params.samples}'
+        'python annovartools.v03.py -I {input} -O {output} --header {params.header} -m {params.mode} {params.samples}'
 
 #rule clean_up:
 #    input:

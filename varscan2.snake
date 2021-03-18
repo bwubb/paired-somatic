@@ -83,19 +83,24 @@ rule VarScan2_processSomatic:
         "{work_dir}/{tumor}/varscan2/germline.raw.snp.vcf",
         "{work_dir}/{tumor}/varscan2/germline.raw.indel.vcf"
     params:
+        bam=lambda wildcards: BAMS[wildcards.tumor],
+        snp="{work_dir}/{tumor}/varscan2/variants.raw.snp.2.vcf",
+        indel="{work_dir}/{tumor}/varscan2/variants.raw.indel.2.vcf"
         #--min-tumor-freq - Minimum variant allele frequency in tumor [0.10]
         #--max-normal-freq - Maximum variant allele frequency in normal [0.05]
         #--p-value - P-value for high-confidence calling [0.07]
     shell:
         """
-        java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {input.snp}
-        java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {input.indel}
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.raw.snp.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.raw.indel.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.raw.snp.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.raw.indel.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.raw.snp.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.raw.indel.vcf
+        gatk UpdateVCFSequenceDictionary -V {input.snp} --source-dictionary {params.bam} --output {params.snp}
+        gatk UpdateVCFSequenceDictionary -V {input.indel} --source-dictionary {params.bam} --output {params.indel}
+        java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {params.snp}
+        java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {params.indel}
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.2.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.raw.snp.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.2.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.raw.indel.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.2.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.raw.snp.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.2.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.raw.indel.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.2.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.raw.snp.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.2.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.raw.indel.vcf
         """
         #RENAME
 

@@ -5,11 +5,6 @@ import csv
 import os
 from collections import defaultdict
 
-#Current method reads in a vcf file for a header.
-#If that is to be done, then maybe I should also check the important INFO lines are present and add them if absent
-
-#header.add_filter_line(vcfpy.OrderedDict([('ID', 'DP10'), ('Description', 'total DP < 10')]))
-
 #vcfpy HeaderLine class
 ##fileformat=VCFv4.3
 ##fileDate=20090805

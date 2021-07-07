@@ -141,7 +141,6 @@ def parse_arguments():
     return vars(p.parse_args())
 
 def main(argv=None):
-    #LOG the run conditions
     for k,v in argv.items():
         print(k,':',v)
     with vcfpy.Reader.from_path('/home/bwubb/resources/Vcf_files/ensemble-header.GRCh37.20200716_v3.vcf') as VCFH:

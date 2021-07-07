@@ -7,10 +7,10 @@ with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
     for sample in SAMPLES:
         os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
-with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
-with open(config['project']['bam_list'],'r') as b:
+with open(config['project']['bam_table'],'r') as b:
     BAMS=dict(line.split('\t') for line in b.read().splitlines())
 
 ### FUNCTIONS ###

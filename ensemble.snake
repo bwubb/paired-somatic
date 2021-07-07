@@ -10,7 +10,7 @@ def annovar_samples(wildcards):
 
 ### INIT ###
 
-with open(config['project']['pair_list'],'r') as p:
+with open(config['project']['pair_table'],'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
 TUMORS=PAIRS.keys()

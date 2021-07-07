@@ -7,10 +7,10 @@ with open(config.get('project',{}).get('sample_list','samples.list'),'r') as s:
     for sample in SAMPLES:
         os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
-with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
-with open(config['project']['bam_list'],'r') as b:
+with open(config['project']['bam_table'],'r') as b:
     BAMS=dict(line.split('\t') for line in b.read().splitlines())
 
 ### FUNCTIONS ###
@@ -53,8 +53,8 @@ rule run_VarDictJava:#First a more lenient -P val, not sure what
         4
     shell:#split to snps and indels
         """
-        $HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {params.raw}
-        tabix -p vcf {params.raw}
+        $HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {params.init}
+        tabix -p vcf {params.init}
         gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {params.bam} --output {output.raw}
         """
 

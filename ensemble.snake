@@ -155,7 +155,7 @@ rule ANNOVAR_germline_loh_ensemble_vcf:
     shell:
         """
         tabix -fp vcf {input}
-        table_annovar.pl {input} {params.humandb} --buildver hg19 --vcfinput --outfile {params.output_p} --protocol refGene,cytoband,genomicSuperDups,dbscsnv11,avsnp150,dbnsfp35a,mcap,revel,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,intervar_20180118,icgc21,cosmic84_coding,cosmic84_noncoding,clinvar_20190305 --operation g,r,r,f,f,f,f,f,f,f,f,f,f,f,f,f,f -remove
+        table_annovar.pl {input} {params.humandb} --buildver hg19 --vcfinput --outfile {params.output_p} --protocol refGene,cytoband,genomicSuperDups,dbscsnv11,avsnp150,dbnsfp35a,mcap,revel,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,intervar_20180118,icgc21,cosmic84_coding,cosmic84_noncoding,clinvar_20210501 --operation g,r,r,f,f,f,f,f,f,f,f,f,f,f,f,f,f -remove
         bgzip {params.output_p}.hg19_multianno.vcf
         tabix -fp vcf {params.output_p}.hg19_multianno.vcf.gz
         """

@@ -50,7 +50,7 @@ rule Sequenza_bam2seqz_byChr:
     input:
         unpack(paired_bams)
     output:
-        "{work_dir}/{tumor}/sequenza/seqz.{chr}.gz"
+        temp("{work_dir}/{tumor}/sequenza/seqz.{chr}.gz")
     params:
         ref=config['reference']['fasta'],
         gc=config['reference']['gc_wiggle']
@@ -63,7 +63,7 @@ rule Sequenza_bin_byChr:
     input:
         "{work_dir}/{tumor}/sequenza/seqz.{chr}.gz"
     output:
-        "{work_dir}/{tumor}/sequenza/seqz.{chr}.small.gz"
+        temp("{work_dir}/{tumor}/sequenza/seqz.{chr}.small.gz")
     params:
         #50 for exome 200 for genome
         bin=50

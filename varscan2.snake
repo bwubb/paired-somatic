@@ -56,12 +56,12 @@ rule run_VarScan2:#OR return to mpileup.gz and zcat into VarScan2
         pileup="{work_dir}/{tumor}/varscan2/normal_tumor.mpileup",
         CP="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt"
     output:
-        indel="{work_dir}/{tumor}/varscan2/variants.raw.indel.vcf",
-        snp="{work_dir}/{tumor}/varscan2/variants.raw.snp.vcf"
+        indel="{work_dir}/{tumor}/varscan2/variants.indel.vcf",
+        snp="{work_dir}/{tumor}/varscan2/variants.snp.vcf"
         #Note the none plural
         #I can use --output-snp and indel to name files
     params:
-        prefix="{work_dir}/{tumor}/varscan2/variants.raw",
+        prefix="{work_dir}/{tumor}/varscan2/variants",
         args='--min-coverage 3 --min-var-freq 0.08 --p-value 0.10 --somatic-p-value 0.05 --strand-filter 0',
         memory='16g'
         #old settings: args="--min-coverage 5 --p-value 0.98 --strand-filter 1"
@@ -73,19 +73,19 @@ rule run_VarScan2:#OR return to mpileup.gz and zcat into VarScan2
 
 rule VarScan2_processSomatic:
     input:
-        snp="{work_dir}/{tumor}/varscan2/variants.raw.snp.vcf",
-        indel="{work_dir}/{tumor}/varscan2/variants.raw.indel.vcf"
+        snp="{work_dir}/{tumor}/varscan2/variants.snp.vcf",
+        indel="{work_dir}/{tumor}/varscan2/variants.indel.vcf"
     output:
-        "{work_dir}/{tumor}/varscan2/somatic.raw.snp.vcf",
-        "{work_dir}/{tumor}/varscan2/somatic.raw.indel.vcf",
-        "{work_dir}/{tumor}/varscan2/loh.raw.snp.vcf",
-        "{work_dir}/{tumor}/varscan2/loh.raw.indel.vcf",
-        "{work_dir}/{tumor}/varscan2/germline.raw.snp.vcf",
-        "{work_dir}/{tumor}/varscan2/germline.raw.indel.vcf"
+        "{work_dir}/{tumor}/varscan2/somatic.snp.vcf",
+        "{work_dir}/{tumor}/varscan2/somatic.indel.vcf",
+        "{work_dir}/{tumor}/varscan2/loh.snp.vcf",
+        "{work_dir}/{tumor}/varscan2/loh.indel.vcf",
+        "{work_dir}/{tumor}/varscan2/germline.snp.vcf",
+        "{work_dir}/{tumor}/varscan2/germline.indel.vcf"
     params:
         bam=lambda wildcards: BAMS[wildcards.tumor],
-        snp="{work_dir}/{tumor}/varscan2/variants.raw.snp.2.vcf",
-        indel="{work_dir}/{tumor}/varscan2/variants.raw.indel.2.vcf"
+        snp="{work_dir}/{tumor}/varscan2/variants.snp.2.vcf",
+        indel="{work_dir}/{tumor}/varscan2/variants.indel.2.vcf"
         #--min-tumor-freq - Minimum variant allele frequency in tumor [0.10]
         #--max-normal-freq - Maximum variant allele frequency in normal [0.05]
         #--p-value - P-value for high-confidence calling [0.07]
@@ -95,33 +95,33 @@ rule VarScan2_processSomatic:
         gatk UpdateVCFSequenceDictionary -V {input.indel} --source-dictionary {params.bam} --output {params.indel}
         java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {params.snp}
         java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {params.indel}
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.2.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.raw.snp.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.2.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.raw.indel.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.2.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.raw.snp.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.2.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.raw.indel.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.snp.2.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.raw.snp.vcf
-        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.raw.indel.2.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.raw.indel.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.snp.2.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.snp.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.indel.2.Somatic.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/somatic.indel.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.snp.2.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.snp.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.indel.2.LOH.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/loh.indel.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.snp.2.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.snp.vcf
+        mv {wildcards.work_dir}/{wildcards.tumor}/varscan2/variants.indel.2.Germline.vcf {wildcards.work_dir}/{wildcards.tumor}/varscan2/germline.indel.vcf
         """
         #RENAME
 
 rule bamreadcount_somatic_regions:
     input:
-        "{work_dir}/{tumor}/varscan2/somatic.raw.snp.vcf",
-        "{work_dir}/{tumor}/varscan2/somatic.raw.indel.vcf"
+        "{work_dir}/{tumor}/varscan2/somatic.snp.vcf",
+        "{work_dir}/{tumor}/varscan2/somatic.indel.vcf"
     output:
-        "{work_dir}/{tumor}/varscan2/somatic.raw.snp.regions",
-        "{work_dir}/{tumor}/varscan2/somatic.raw.indel.regions"
+        "{work_dir}/{tumor}/varscan2/somatic.snp.regions",
+        "{work_dir}/{tumor}/varscan2/somatic.indel.regions"
     script:
         "bam-readcount_regions.py"
 
 rule bamreadcount_somatic_readcounts:
     input:
         bam=lambda wildcards: BAMS[wildcards.tumor],
-        snp="{work_dir}/{tumor}/varscan2/somatic.raw.snp.regions",
-        indel="{work_dir}/{tumor}/varscan2/somatic.raw.indel.regions"
+        snp="{work_dir}/{tumor}/varscan2/somatic.snp.regions",
+        indel="{work_dir}/{tumor}/varscan2/somatic.indel.regions"
     output:
-        snp="{work_dir}/{tumor}/varscan2/somatic.raw.snp.readcounts",
-        indel="{work_dir}/{tumor}/varscan2/somatic.raw.indel.readcounts"
+        snp="{work_dir}/{tumor}/varscan2/somatic.snp.readcounts",
+        indel="{work_dir}/{tumor}/varscan2/somatic.indel.readcounts"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -137,10 +137,10 @@ rule bamreadcount_somatic_readcounts:
 
 rule VarScan2_somatic_fpfilter:
     input:
-        snp_vcf="{work_dir}/{tumor}/varscan2/somatic.raw.snp.vcf",
-        indel_vcf="{work_dir}/{tumor}/varscan2/somatic.raw.indel.vcf",
-        snp_readcount="{work_dir}/{tumor}/varscan2/somatic.raw.snp.readcounts",
-        indel_readcount="{work_dir}/{tumor}/varscan2/somatic.raw.indel.readcounts"
+        snp_vcf="{work_dir}/{tumor}/varscan2/somatic.snp.vcf",
+        indel_vcf="{work_dir}/{tumor}/varscan2/somatic.indel.vcf",
+        snp_readcount="{work_dir}/{tumor}/varscan2/somatic.snp.readcounts",
+        indel_readcount="{work_dir}/{tumor}/varscan2/somatic.indel.readcounts"
     output:
         snp_out="{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.out",
         indel_out="{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.out"
@@ -246,22 +246,22 @@ rule VarScan2_somatic_annotation:
 
 rule bamreadcount_loh_regions:
     input:
-        "{work_dir}/{tumor}/varscan2/loh.raw.snp.vcf",
-        "{work_dir}/{tumor}/varscan2/loh.raw.indel.vcf"
+        "{work_dir}/{tumor}/varscan2/loh.snp.vcf",
+        "{work_dir}/{tumor}/varscan2/loh.indel.vcf"
     output:
-        "{work_dir}/{tumor}/varscan2/loh.raw.snp.regions",
-        "{work_dir}/{tumor}/varscan2/loh.raw.indel.regions"
+        "{work_dir}/{tumor}/varscan2/loh.snp.regions",
+        "{work_dir}/{tumor}/varscan2/loh.indel.regions"
     script:
         "bam-readcount_regions.py"
 
 rule bamreadcount_loh_recounts:
     input:
         bam=lambda wildcards: BAMS[PAIRS[wildcards.tumor]],
-        snp="{work_dir}/{tumor}/varscan2/loh.raw.snp.regions",
-        indel="{work_dir}/{tumor}/varscan2/loh.raw.indel.regions"
+        snp="{work_dir}/{tumor}/varscan2/loh.snp.regions",
+        indel="{work_dir}/{tumor}/varscan2/loh.indel.regions"
     output:
-        snp="{work_dir}/{tumor}/varscan2/loh.raw.snp.readcounts",
-        indel="{work_dir}/{tumor}/varscan2/loh.raw.indel.readcounts"
+        snp="{work_dir}/{tumor}/varscan2/loh.snp.readcounts",
+        indel="{work_dir}/{tumor}/varscan2/loh.indel.readcounts"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -272,10 +272,10 @@ rule bamreadcount_loh_recounts:
 
 rule VarScan2_loh_fpfilter:
     input:
-        snp_vcf="{work_dir}/{tumor}/varscan2/loh.raw.snp.vcf",
-        indel_vcf="{work_dir}/{tumor}/varscan2/loh.raw.indel.vcf",
-        snp_readcount="{work_dir}/{tumor}/varscan2/loh.raw.snp.readcounts",
-        indel_readcount="{work_dir}/{tumor}/varscan2/loh.raw.indel.readcounts"
+        snp_vcf="{work_dir}/{tumor}/varscan2/loh.snp.vcf",
+        indel_vcf="{work_dir}/{tumor}/varscan2/loh.indel.vcf",
+        snp_readcount="{work_dir}/{tumor}/varscan2/loh.snp.readcounts",
+        indel_readcount="{work_dir}/{tumor}/varscan2/loh.indel.readcounts"
     output:
         snps="{work_dir}/{tumor}/varscan2/loh.snps.fpfilter.vcf.gz",
         indels="{work_dir}/{tumor}/varscan2/loh.indels.fpfilter.vcf.gz"
@@ -348,22 +348,22 @@ rule VarScan2_loh_annotation:
         """
 rule bamreadcount_germline_regions:
     input:
-        "{work_dir}/{tumor}/varscan2/germline.raw.snp.vcf",
-        "{work_dir}/{tumor}/varscan2/germline.raw.indel.vcf"
+        "{work_dir}/{tumor}/varscan2/germline.snp.vcf",
+        "{work_dir}/{tumor}/varscan2/germline.indel.vcf"
     output:
-        "{work_dir}/{tumor}/varscan2/germline.raw.snp.regions",
-        "{work_dir}/{tumor}/varscan2/germline.raw.indel.regions"
+        "{work_dir}/{tumor}/varscan2/germline.snp.regions",
+        "{work_dir}/{tumor}/varscan2/germline.indel.regions"
     script:
         "bam-readcount_regions.py"
 
 rule bamreadcount_germline_recounts:
     input:
         bam=lambda wildcards: BAMS[PAIRS[wildcards.tumor]],
-        snp="{work_dir}/{tumor}/varscan2/germline.raw.snp.regions",
-        indel="{work_dir}/{tumor}/varscan2/germline.raw.indel.regions"
+        snp="{work_dir}/{tumor}/varscan2/germline.snp.regions",
+        indel="{work_dir}/{tumor}/varscan2/germline.indel.regions"
     output:
-        snp="{work_dir}/{tumor}/varscan2/germline.raw.snp.readcounts",
-        indel="{work_dir}/{tumor}/varscan2/germline.raw.indel.readcounts"
+        snp="{work_dir}/{tumor}/varscan2/germline.snp.readcounts",
+        indel="{work_dir}/{tumor}/varscan2/germline.indel.readcounts"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -374,10 +374,10 @@ rule bamreadcount_germline_recounts:
 
 rule VarScan2_germline_fpfilter:
     input:
-        snp_vcf="{work_dir}/{tumor}/varscan2/germline.raw.snp.vcf",
-        indel_vcf="{work_dir}/{tumor}/varscan2/germline.raw.indel.vcf",
-        snp_readcount="{work_dir}/{tumor}/varscan2/germline.raw.snp.readcounts",
-        indel_readcount="{work_dir}/{tumor}/varscan2/germline.raw.indel.readcounts"
+        snp_vcf="{work_dir}/{tumor}/varscan2/germline.snp.vcf",
+        indel_vcf="{work_dir}/{tumor}/varscan2/germline.indel.vcf",
+        snp_readcount="{work_dir}/{tumor}/varscan2/germline.snp.readcounts",
+        indel_readcount="{work_dir}/{tumor}/varscan2/germline.indel.readcounts"
     output:
         snps="{work_dir}/{tumor}/varscan2/germline.snps.fpfilter.vcf.gz",
         indels="{work_dir}/{tumor}/varscan2/germline.indels.fpfilter.vcf.gz"

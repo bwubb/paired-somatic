@@ -1,0 +1,122 @@
+import os
+
+### INIT ###
+
+with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
+    SAMPLES=i.read().splitlines()
+    for sample in SAMPLES:
+        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
+
+with open(config.get('project',{}).get('pair_list','pairs.list'),'r') as p:
+    PAIRS=dict(line.split('\t') for line in p.read().splitlines())
+
+with open(config['project']['bam_list'],'r') as b:
+    BAMS=dict(line.split('\t') for line in b.read().splitlines())
+
+### FUNCTIONS ###
+
+def paired_bams(wildcards):
+    ref=config['reference']['key']
+    tumor=wildcards.tumor
+    normal=PAIRS[wildcards.tumor]
+    return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
+
+### SNAKEMAKE ###
+
+wildcard_constraints:
+    work_dir=f"data/work/{config['resources']['targets_key']}"
+
+rule collect_mutect2:
+    input: expand("data/work/{lib}/{tumor}/mutect2/somatic.twice_filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+
+#rule three steps to create pon
+
+rule run_Mutect2:
+    input:
+        unpack(paired_bams)
+    output:#--bamOutput {output.bam}
+        raw="{work_dir}/{tumor}/mutect2/somatic.raw.vcf.gz",
+        snps="{work_dir}/{tumor}/mutect2/somatic.raw.snps.vcf.gz",
+        indels="{work_dir}/{tumor}/mutect2/somatic.raw.indels.vcf.gz",
+        stats="{work_dir}/{tumor}/mutect2/somatic.raw.vcf.gz.stats"
+    params:
+        ref=config['reference']['fasta'],
+        intervals=config['resources']['targets_intervals'],
+        tumor=lambda wildcards: wildcards.tumor,
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        memory='32g'
+    shell:
+        """
+        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw}
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -L {params.intervals} -select-type SNP
+        gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -L {params.intervals} -select-type INDEL
+        """
+        #If GRCh38 consider adding --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter, see documentation for details
+#gatk Mutect2 -R ref.fasta \
+#        -L intervals.interval_list \
+#        -I tumor.bam \
+#        -germline-resource af-only-gnomad.vcf \
+#        -pon panel_of_normals.vcf   \
+#        --f1r2-tar-gz f1r2.tar.gz \
+#        -O unfiltered.vcf
+
+#rule Mutect2_LearnReadOrientationModel:
+#    input:
+#    output:
+#    params:
+#    shell:
+#        "gatk LearnReadOrientationModel -I f1r2.tar.gz -O read-orientation-model.tar.gz"
+
+#rule Mutect2_GetPileupSummaries:
+#    input:
+#    output:
+#    params:
+#    shell:
+#   gatk GetPileupSummaries \
+#    -I tumor.bam \
+#    -V chr17_small_exac_common_3_grch38.vcf.gz \
+#    -L chr17_small_exac_common_3_grch38.vcf.gz \
+#    -O getpileupsummaries.table
+
+#rule Mutect2_CalculateContamination:
+#gatk CalculateContamination \
+#        -I getpileupsummaries.table \
+#        -tumor-segmentation segments.table \
+#        -O calculatecontamination.table
+
+#rule Mutect2_FilterMutectCalls:
+#    gatk FilterMutectCalls -V unfiltered.vcf \
+#        [--tumor-segmentation segments.table] \
+#        [--contamination-table contamination.table] \
+#        --ob-priors read-orientation-model.tar.gz \
+#        -O filtered.vcf
+
+rule Mutect2_somatic_normalized:
+    input:
+        "{work_dir}/{tumor}/mutect2/somatic.twice_filtered.vcf.gz"
+    output:
+        norm="{work_dir}/{tumor}/mutect2/somatic.twice_filtered.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/mutect2/somatic.twice_filtered.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        ref=config['reference']['fasta']
+    shell:
+        """
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
+        tabix -f -p vcf {output.norm}
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        tabix -f -p vcf {output.clean}
+        """
+
+rule Mutect2_somatic_standardized:
+    input:
+        "{work_dir}/{tumor}/mutect2/somatic.twice_filtered.norm.clean.vcf.gz"
+    output:
+        "{work_dir}/{tumor}/mutect2/somatic.twice_filtered.norm.clean.std.vcf.gz"
+    params:
+        tumor=lambda wildcards: wildcards.tumor,
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        lib=config['resources']['targets_key'],
+        mode='mutect2'
+    script:
+        "standardize_vcf.py"

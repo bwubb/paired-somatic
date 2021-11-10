@@ -28,7 +28,7 @@ wildcard_constraints:
 
 rule collect_strelka2:
     input:
-        expand("data/work/{lib}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/strelka2/results/variants/somatic.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule write_Manta:
     input:
@@ -73,8 +73,7 @@ rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont 
         "{work_dir}/{tumor}/strelka2/runWorkflow.py"
     output:
         snvs="{work_dir}/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",#not snps
-        indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz",
-        raw="{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.vcf.gz"
+        indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
     params:
         workdir="{work_dir}/{tumor}/strelka2",
         reference=config['reference']['fasta'],
@@ -82,19 +81,27 @@ rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont 
     threads:
         4
     shell:
-        """
-        {input} -m local -j {threads}
-        bcftools concat -a --threads {threads} {output.snvs} {output.indels} | bcftools sort -O z -o {output.raw}
-        tabix -f -p vcf {output.raw}
-        """
+        "{input} -m local -j {threads}"
         #can add -m, --max-mem <float>[kMG]    maximum memory to use [768M] for sort
+
+rule Strelka2_concat:
+    input:
+        snvs="{work_dir}/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",
+        indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
+    output:
+        "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
+    shell:
+        """
+        bcftools concat -a {input.snvs} {input.indels} | bcftools sort -O z -o {output}
+        tabix -f -p vcf {output}
+        """
 
 rule Strelka2_somatic_normalized:
     input:
-        "{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.vcf.gz"
+        "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.vcf.gz",
-        clean="{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.vcf.gz"
+        norm="{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
@@ -108,9 +115,9 @@ rule Strelka2_somatic_normalized:
 
 rule Strelka2_somatic_standardized:
     input:
-        "{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.vcf.gz"
+        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz"
     output:
-        "{work_dir}/{tumor}/strelka2/results/variants/somatic.raw.norm.clean.std.vcf.gz"
+        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.std.vcf.gz"
     params:
         tumor=lambda wildcards: wildcards.tumor,
         normal=lambda wildcards: PAIRS[wildcards.tumor],

@@ -40,9 +40,9 @@ rule run_VarDictJava:#First a more lenient -P val, not sure what
     input:
         unpack(paired_bams)
     output:
-        raw="{work_dir}/{tumor}/vardict/variants.raw.vcf.gz"
+        "{work_dir}/{tumor}/vardict/variants.vcf.gz"
     params:
-        init="{work_dir}/{tumor}/vardict/raw.vcf.gz",
+        init="{work_dir}/{tumor}/vardict/output.vcf.gz",
         bam=lambda wildcards: BAMS[wildcards.tumor],
         ref=config['reference']['fasta'],
         bed=config['resources']['targets_bed'],
@@ -55,14 +55,14 @@ rule run_VarDictJava:#First a more lenient -P val, not sure what
         """
         $HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {params.init}
         tabix -p vcf {params.init}
-        gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {params.bam} --output {output.raw}
+        gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {params.bam} --output {output}
         """
 
 rule VarDict_filter:
     input:
-        "{work_dir}/{tumor}/vardict/variants.raw.vcf.gz"
+        "{work_dir}/{tumor}/vardict/variants.vcf.gz"
     output:
-        somatic="{work_dir}/{tumor}/vardict/somatic.raw.vcf.gz",
+        somatic="{work_dir}/{tumor}/vardict/somatic.vcf.gz",
         once="{work_dir}/{tumor}/vardict/variants.once_filtered.vcf.gz",
         twice="{work_dir}/{tumor}/vardict/variants.twice_filtered.vcf.gz"
     shell:

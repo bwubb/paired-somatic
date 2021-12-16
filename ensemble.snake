@@ -14,6 +14,8 @@ with open(config['project']['pair_table'],'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
 TUMORS=PAIRS.keys()
+#clean up rule
+#perform du first to see all files and size removed.
 
 ### SNAKEMAKE
 

@@ -105,13 +105,12 @@ rule Mutect2_somatic_normalized:
         norm="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz",
         clean="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
     params:
-        regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
     shell:
         """
         bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
         tabix -f -p vcf {output.norm}
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        bcftools view -e 'ALT~\"*\"' {output.norm} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
 

@@ -24,27 +24,44 @@ def paired_bams(wildcards):
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
 ### SNAKEMAKE ###
+localrules: collect_lancet
 
 wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}"
 
 rule collect_lancet:
     input:
-        expand("data/work/{lib}/{tumor}/lancet/somatic.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/lancet/somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule run_lancet:
     input:
         unpack(paired_bams)
     output:
-        raw="{work_dir}/{tumor}/lancet/somatic.vcf.gz"
+        "{work_dir}/{tumor}/lancet/somatic.vcf.gz"
     params:
-        ref=config['reference']['fasta']
-        bed=config['resources']['bed']
+        ref=config['reference']['fasta'],
+        bed=config['resources']['targets_bed']
     threads:
-        8
+        4
     shell:
         """
         lancet --tumor {input.tumor} --normal {input.normal} --ref {params.ref} --bed {params.bed} --num-threads {threads} | bcftools view -O z -o {output}
         tabix -fp vcf {output}
         """
+        ##Reheader?
 
+rule normalize_lancet:
+    input:
+        "{work_dir}/{tumor}/lancet/somatic.vcf.gz"
+    output:
+        norm="{work_dir}/{tumor}/lancet/somatic.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/lancet/somatic.norm.clean.vcf.gz"
+    params:
+        ref=config['reference']['fasta']
+    shell:
+        """
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
+        tabix -fp vcf {output.norm}
+        bcftools view -e 'ALT~\"*\"' {output.norm} | bcftools sort -O z -o {output.clean}
+        tabix -fp vcf {output.clean}
+        """

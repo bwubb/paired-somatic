@@ -109,7 +109,7 @@ rule Bcftools_germline_loh_concat:
         bcftools concat -a {input.varscan2_germline} {input.varscan2_loh} | bcftools sort -O z -o {output.varscan2_out}
         tabix -f -p vcf {output.varscan2_out}
         """
-        
+
 rule Bcftools_germline_loh_isec:
     input:
         vardict="data/work/{lib}/{tumor}/vardict/germline-loh.twice_filtered.norm.clean.std.vcf.gz",

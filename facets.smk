@@ -57,5 +57,3 @@ rule run_facets:
         cval=150
     script:
         "facets-snakemake.R"
-        
-        

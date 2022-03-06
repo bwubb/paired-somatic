@@ -13,9 +13,6 @@ with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
 with open(config['project']['bam_table'],'r') as b:
     BAMS=dict(line.split('\t') for line in b.read().splitlines())
 
-CHR=[f'chr{c}' for c in range(1,23)]+['chrX']
-print(CHR)
-
 ### FUNCTIONS ###
 
 def paired_bams(wildcards):
@@ -27,8 +24,7 @@ def paired_bams(wildcards):
 ### SNAKEMAKE ###
 
 wildcard_constraints:
-    work_dir=f"data/work/{config['resources']['targets_key']}",
-    chr="chr[1-2][0-9]|chr[1-9]|chrX"
+    work_dir=f"data/work/{config['resources']['targets_key']}"
 
 rule collect_sequenza:
     input:
@@ -41,50 +37,43 @@ rule collect_sequenza:
 #    gawk '{if (NR!=1 && $1 != "chromosome") {print $0}}' | bgzip > \
 #    sample.seqz.gz
 #tabix -f -s 1 -b 2 -e 2 -S 1 sample.seqz.gz
+#I have done this already in another script, but it has not been added.
 
 #awk 'FNR==1 && NR!=1 { while (/^HRD/) getline; } 1 {print}' *hrd.txt
 
-#Make workflow to create gc file
 
-rule Sequenza_bam2seqz_byChr:
+
+rule Sequenza_bam2seqz:
     input:
         unpack(paired_bams)
-    output:
-        temp("{work_dir}/{tumor}/sequenza/seqz.{chr}.gz")
     params:
         ref=config['reference']['fasta'],
         gc=config['reference']['gc_wiggle']
-        #chr=lambda wildcards: wildcards.chr
-    shell:
-        "sequenza-utils bam2seqz -F {params.ref} -gc {params.gc} -n {input.normal} -t {input.tumor} -C {wildcards.chr} | gzip > {output}"
-#CHECK IF THE FILE IS EMPTY
-
-rule Sequenza_bin_byChr:
-    input:
-        "{work_dir}/{tumor}/sequenza/seqz.{chr}.gz"
+        #"$HOME/resources/Genomes/Human/GRCh37/custom-GRCh37.gc50Base.txt.gz"#different file for tcga Homo_sapien_assembly19
     output:
-        temp("{work_dir}/{tumor}/sequenza/seqz.{chr}.small.gz")
+        "{work_dir}/{tumor}/sequenza/seqz.gz"
+    shell:
+        #"sequenza-utils.py pileup2seqz -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+        "sequenza-utils bam2seqz -F {params.ref} -gc {params.gc} -n {input.normal} -t {input.tumor} | gzip > {output}"
+        #CHECK IF THE FILE IS EMPTY
+#Make workflow to create gc file
+
+rule Sequenza_bin:
+    input:
+        "{work_dir}/{tumor}/sequenza/seqz.gz"
+    output:
+        "{work_dir}/{tumor}/sequenza/seqz.small.txt"
     params:
-        #50 for exome 200 for genome
         bin=50
+        #50 for exome 200 for genome
     shell:
-        "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
-
-rule Sequenza_combine_seqz:
-    input:
-        ["{{work_dir}}/{{tumor}}/sequenza/seqz.{chr}.small.gz".format(chr=chr) for chr in CHR]
-    output:
-        "{work_dir}/{tumor}/sequenza/seqz.small.all.gz"
-    shell:
-        """
-        zcat {input} | gawk '{{if (NR!=1 && $1 != \"chromosome\") {{print $0}}}}' | bgzip > {output}
-        tabix -f -s 1 -b 2 -e 2 -S 1 {output}
-        """
+        "sequenza-utils seqz_binning -w {params.bin} -s {input} -o {output}"
 
 #need to remove Y MT M
+#At somepoint sequenza started having trouble with gzipped files.
 rule Sequenza_extract:
     input:
-        "{work_dir}/{tumor}/sequenza/seqz.small.all.gz"
+        "{work_dir}/{tumor}/sequenza/seqz.small.txt"
     output:
         "{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt",
         "{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
@@ -92,8 +81,8 @@ rule Sequenza_extract:
         outdir="{work_dir}/{tumor}/sequenza"
     threads:
         4
-    script:
-        "sequenza-snakemake.R"
+    shell:
+        "Rscript sequenza-snakemake.R --id {wildcards.tumor} --input {input} --outdir {params.outdir} --threads {threads}"
 
 rule Sequenza_hrd:
     input:

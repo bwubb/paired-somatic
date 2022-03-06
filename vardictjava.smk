@@ -36,6 +36,10 @@ rule collect_vardict_somatic:
     input:
         expand("data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
+rule collect_vardict_unpaired:
+    input:
+        expand("data/work/{lib}/{sample}/vardict/unpaired_variants.vcf.gz",lib=config['resources']['targets_key'],sample=SAMPLES)
+
 rule run_VarDictJava:#First a more lenient -P val, not sure what
     input:
         unpack(paired_bams)
@@ -53,9 +57,27 @@ rule run_VarDictJava:#First a more lenient -P val, not sure what
         4
     shell:#split to snps and indels
         """
-        $HOME/software/VarDictJava/build/install/VarDict/bin/VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {params.init}
+        VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {params.init}
         tabix -p vcf {params.init}
         gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {params.bam} --output {output}
+        """
+
+rule run_unpaired_VarDictJava:#First a more lenient -P val, not sure what
+    input:
+        bam=lambda wildcards: BAMS[wildcards.sample]
+    output:
+        "{work_dir}/{sample}/vardict/unpaired_variants.vcf.gz"
+    params:
+        init="{work_dir}/{sample}/vardict/output2.vcf.gz",
+        ref=config['reference']['fasta'],
+        bed=config['resources']['targets_bed'],
+        path="/home/bwubb/software/VarDictJava/VarDict",
+        AF_THR=0.01
+    shell:
+        """
+        VarDict -G {params.ref} -f {params.AF_THR} -N {wildcards.sample} -b {input.bam} -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/teststrandbias.R | {params.path}/var2vcf_valid.pl -N {wildcards.sample} -f {params.AF_THR} | bgzip -c > {params.init}
+        tabix -fp vcf {params.init}
+        gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {input} --output {output}
         """
 
 rule VarDict_filter:

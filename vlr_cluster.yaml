@@ -5,7 +5,39 @@
     'eo': 'logs/cluster/{wildcards.tumor}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.tumor}/{rule}.o'
     'R': '"span [hosts=1] rusage [mem=6144]"'
+estimate_properties:
+    'J': '{wildcards.sample}_{rule}'
+    'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
+    'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'
 preprocess_sample:
     'J': '{wildcards.sample}_{rule}'
     'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'
+write_somatic_scenario:
+    'J': '{wildcards.tumor}_{rule}_{wildcards.scenario}'
+    'eo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.e'
+    'oo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.o'
+varlociraptor_scenario:
+    'J': '{wildcards.tumor}_{rule}_{wildcards.scenario}'
+    'eo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.e'
+    'oo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.o'
+    'M': '32768'
+    'R': '"span [hosts=1] rusage [mem=32768]"'
+varlociraptor_local_fdr:
+    'J': '{wildcards.tumor}_{rule}_{wildcards.scenario}'
+    'eo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.e'
+    'oo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.o'
+    'M': '32768'
+    'R': '"span [hosts=1] rusage [mem=32768]"'
+varlociraptor_vep:
+    'J': '{wildcards.tumor}_{rule}_{wildcards.scenario}'
+    'eo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.e'
+    'oo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.o'
+    'M': '32768'
+    'R': '"span [hosts=1] rusage [mem=32768]"'
+varlociraptor_vep_report:
+    'J': '{wildcards.tumor}_{rule}_{wildcards.scenario}'
+    'eo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.e'
+    'oo': 'logs/cluster/{wildcards.tumor}/{rule}_{wildcards.scenario}.o'
+    'M': '32768'
+    'R': '"span [hosts=1] rusage [mem=32768]"'

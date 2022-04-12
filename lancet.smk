@@ -33,6 +33,10 @@ rule collect_lancet:
     input:
         expand("data/work/{lib}/{tumor}/lancet/somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
+rule final_lancet:
+    input:
+        expand("data/final/{lib}/{tumor}/lancet/{tumor}.somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+
 rule run_lancet:
     input:
         unpack(paired_bams)

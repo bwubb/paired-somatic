@@ -19,3 +19,6 @@ resources:
     clinvar: '/home/bwubb/.vep/clinvar/vcf_GRCh37/clinvar.vcf.gz'
     revel: '/home/bwubb/.vep/revel/revel_grch37.tsv.gz'
     utrannotator: '/home/bwubb/.vep/Plugins/UTRannotator/uORF_5UTR_GRCh37_PUBLIC.txt'
+analysis:
+    purity_table: 'purity.table'
+    vlr: 'default_somatic.yml'

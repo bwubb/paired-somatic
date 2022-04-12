@@ -8,7 +8,7 @@ from collections import defaultdict
 
 #class
 class VEPannotation(object):
-    def __init__(self,vcfpy_record,tumor_normal=False):
+    def __init__(self,vcfpy_record,tumor_normal=False,tumor_id=None):
         self.fields=defaultdict(str)
         self.fields['Chr']=f"{vcfpy_record.CHROM}"
         self.fields['Start']=f"{vcfpy_record.POS}"
@@ -16,7 +16,7 @@ class VEPannotation(object):
         self.fields['ALT']=f"{vcfpy_record.ALT[0].value}"
         self.fields['FILTER']=f"{';'.join(vcfpy_record.FILTER)}".replace("MONOALLELIC",'.')
         if tumor_normal:
-            self.calls=self.__tumor_normal__(vcfpy_record.calls)
+            self.calls=self.__tumor_normal__(vcfpy_record.calls,tumor_id)
         else:
             self.calls=self.__get_calls__(vcfpy_record.calls)
         self.call_count=len(self.calls)
@@ -75,22 +75,27 @@ class VEPannotation(object):
         return _calls
 
     @staticmethod
-    def __tumor_normal__(record_calls):
+    def __tumor_normal__(record_calls,tumor_id):
         x=defaultdict(str)
         for c in record_calls:
             #Custom errors for metrics
-            if c.sample=='tumor':
+            if c.sample.lower()=='tumor' or c.sample==tumor_id:
                 x['Tumor.ID']=c.sample
                 x['Tumor.Depth']=f"{c.data.get('DP','.')}"
                 x['Tumor.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
                 x['Tumor.AltDepth']=f"{c.data.get('AD','')}"
                 x['Tumor.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
+                #VLR does not like to give AD/AF. This is an unchecked estimation.
+                if AD=='' and AF!='.':
+                        AD=f"{int(c.data.get('DP','0'))*float(c.data.get('AF','0.0')):.0f}"
             else:
                 x['Normal.ID']=c.sample
                 x['Normal.Depth']=f"{c.data.get('DP','.')}"
                 x['Normal.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
                 x['Normal.AltDepth']=f"{c.data.get('AD','.')}"
                 x['Normal.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
+                if AD=='' and AF!='.':
+                        AD=f"{int(c.data.get('DP','0'))*float(c.data.get('AF','0.0')):.0f}"
         return [x]
 
     def info(self,CSQ):
@@ -192,6 +197,9 @@ def report_header(annotations,tumor_normal=False):
     def clinvar(tumor_normal=False):
         return ['ClinVar','ClinVar.SIG','ClinVar.REVSTAT','ClinVar.DN']
 
+    def loftree(tumor_normal=False):
+        pass
+    
     def genotype(tumor_normal=False):
         if tumor_normal:
             return ['Tumor.Zyg','Tumor.Depth','Tumor.AltDepth','Tumor.AltFrac','Normal.Zyg','Normal.Depth','Normal.AltDepth','Normal.AltFrac']
@@ -215,11 +223,15 @@ def annotation_check(annotations):
             raise NameError
 
 def gene_list_check(fp):
-    if os.path.isfile(fp):
-        with open(fp,'r') as file:
-            gene_list=file.read().splitlines()
-            #print(gene_list)
-        return True,gene_list
+    #receive error for NoneType
+    try:
+        if os.path.isfile(fp):
+            with open(fp,'r') as file:
+                gene_list=file.read().splitlines()
+                #print(gene_list)
+                return True,gene_list
+    except TypeError:
+        pass
     return False,[]
 
 def get_args(argv):
@@ -245,7 +257,9 @@ def main(argv=None):
         #index error default tumor normal
     else:
         tumor_normal=False
+        tumor=None
 
+    #default everything is not working properly
     header=report_header(args.annotations,tumor_normal)
     #test data
     #VcfReader=vcfpy.Reader.from_path('data/vcf/FLCN/PMBB-Release-2020-2.0_genetic_exome_FLCN_NF.norm.vep.vcf.gz')
@@ -257,7 +271,7 @@ def main(argv=None):
         for record in VcfReader:
             if len(record.ALT)>1:
                 print(f"Warning! : record.ALT length is {len(record.ALT)}. Not currently supported")
-            vep_data=VEPannotation(record,tumor_normal)
+            vep_data=VEPannotation(record,tumor_normal,tumor)
             for csq_i in record.INFO['CSQ']:
                 csq_dict=dict(zip(csq_keys,csq_i.split('|')))
                 if csq_dict['SYMBOL']!='' and csq_dict['CANONICAL']=='YES':

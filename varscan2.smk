@@ -32,13 +32,19 @@ wildcard_constraints:
 
 rule collect_varscan2:
     input:
-        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule collect_varscan2_somatic:
     input:
         expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+
+rule: collect_annotated_varscan2:
+    input:
+        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.vep.reporst.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule pair_mpileup:
     input:
@@ -212,6 +218,54 @@ rule VarScan2_somatic_normalized:
         tabix -f -p vcf {output.clean}
         """
 
+rule varscan2_somatic_vep:
+    input:
+        "data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
+    output:
+        vcf="data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.vcf.gz
+    params:
+        out_vcf='data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.vcf
+        assembly=config['reference']['key'],
+        fa=config['reference']['fasta'],
+        splice_snv=config['resources']['splice_snv'],
+        splice_indel=config['resources']['splice_indel'],
+        gnomAD=config['resources']['gnomAD'],
+        clinvar=config['resources']['clinvar'],
+        revel=config['resources']['revel'],
+        loftee='$HOME/.vep/Plugins/loftee',#check
+        utr=config['resources']['utr']
+    shell:
+        """
+        bcftools view -O v -o {params.in_vcf} {input} && tabix -fp vcf {params.in_vcf}
+
+        #if {{ conda env list | grep 'vep'; }} >/dev/null 2>&1; then source activate vep; fi
+
+        vep -i {input} -o {params.out_vcf} \
+        --force_overwrite \
+        --offline \
+        --cache \
+        --format vcf \
+        --vcf \
+        --everything \
+        --canonical \
+        --assembly {params.assembly} \
+        --species homo_sapiens \
+        --fasta {params.fa} \
+        --plugin NMD \
+        --plugin REVEL,{params.revel} \
+        --plugin SpliceAI,snv={params.splice_snv},indel={params.splice_indel} \
+        --plugin gnomADc,{params.gnomAD} \
+        --plugin LoF,loftee_path:{params.loftee} \
+        --plugin UTRannotator,{params.utr} \
+        --custom {params.clinvar},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN
+
+        bgzip {params.out_vcf} && tabix -fp vcf {output.vcf}
+
+        #bcftools view -O b -o {output.bcf} {output.vcf}
+        #bcftools index -f {output.bcf}
+        """
+
+###DEPRECIATED/
 rule VarScan2_somatic_standardized:
     input:
         "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
@@ -243,6 +297,7 @@ rule VarScan2_somatic_annotation:
         bgzip {params.outname}.vcf
         tabix -f -p vcf {output}
         """
+###/DEPRECIATED
 
 rule bamreadcount_loh_regions:
     input:
@@ -448,4 +503,3 @@ rule VarScan2_germline_annotation:
         bgzip {params.outname}.vcf
         tabix -f -p vcf {output}
         """
-

@@ -34,6 +34,9 @@ rule collect_sequenza:
     input:
         expand("data/work/{lib}/{tumor}/sequenza/{tumor}_segments.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
+rule collect_hrd:
+    input:
+        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_hrd.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
 #This can be parallelized; divided into chr.seqz.gz
 #probably combined after binning. each file has same header
@@ -100,6 +103,8 @@ rule Sequenza_hrd:
         segments="{work_dir}/{tumor}/sequenza/{tumor}_segments.txt",
         confints="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt",
     output:
-        "{tumor}_hrd.txt"
-    script:
-        "Rscript $HOME/software/BRADtools/beta/hrd_wrapper.R {tumor} {input.segments} {input.confints}"
+        "{work_dir}/{tumor}/sequenza/{tumor}_hrd.txt"
+    params:
+        ref=config['reference']['key'].lower()
+    shell:
+        "Rscript $HOME/software/HRDex/R/HRD_wrapper.R {input.segments} {params.ref} {wildcards.tumor} > {output}"

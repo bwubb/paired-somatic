@@ -1,3 +1,5 @@
+#https://github.com/bwubb
+
 import os
 import yaml
 #include ./lancet.smk
@@ -55,7 +57,7 @@ rule local_fdr:
 
 rule collect_vep:
     input:
-        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=config['analysis']['vlr'].rstrip('.yml'))
+        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
 
 rule sites:
     input:
@@ -69,7 +71,7 @@ rule candidate_tsv:
     input:
         map_vcf
     output:
-        "data/work/{lib}/{tumor}/{caller}/cadidate.tsv"
+        "data/work/{lib}/{tumor}/{caller}/candidate.tsv"
     shell:
         """
         bcftools query -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' {input} > {output}
@@ -79,11 +81,11 @@ rule candidate_tsv:
 #add manta?
 rule candidate_bcf:
     input:
-        "data/work/{lib}/{tumor}/lancet/cadidate.tsv",
-        "data/work/{lib}/{tumor}/mutect2/cadidate.tsv",
-        "data/work/{lib}/{tumor}/strelka2/cadidate.tsv",
-        "data/work/{lib}/{tumor}/vardict/cadidate.tsv",
-        "data/work/{lib}/{tumor}/varscan2/cadidate.tsv"
+        "data/work/{lib}/{tumor}/lancet/candidate.tsv",
+        "data/work/{lib}/{tumor}/mutect2/candidate.tsv",
+        "data/work/{lib}/{tumor}/strelka2/candidate.tsv",
+        "data/work/{lib}/{tumor}/vardict/candidate.tsv",
+        "data/work/{lib}/{tumor}/varscan2/candidate.tsv"
     output:
         "data/work/{lib}/{tumor}/varlociraptor/candidate.bcf"
     params:
@@ -178,6 +180,7 @@ rule varlociraptor_vep:
         utr=config['resources']['utr'],
         ref_fa="data/work/{lib}/{tumor}/varlociraptor/{scenario}.reference.fa",
         mut_fa="data/work/{lib}/{tumor}/varlociraptor/{scenario}.mutated.fa"
+    conda: "vep"
     shell:
         """
         bcftools view -O v -o {params.in_vcf} {input} && tabix -fp vcf {params.in_vcf}

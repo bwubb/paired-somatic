@@ -128,13 +128,12 @@ rule write_somatic_scenario:
     params:
         contamination=lambda wildcards: f"{1-float(PURITY.get(wildcards.tumor,'1.0')):.2f}"
     run:
-        """
         with open({input.yaml},'r') as i:
             scenario=yaml.load(i,Loader=yaml.BaseLoader)
             scenario['samples']['tumor']['contamination']['fraction']={params.contamination}
+
         with open({output.yaml},'w') as o:
             yaml.dump(scenario,o,default_flow_style=False)
-        """
 
 rule varlociraptor_scenario:
     input:

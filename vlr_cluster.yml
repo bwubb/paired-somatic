@@ -5,11 +5,11 @@
     'eo': 'logs/cluster/{wildcards.tumor}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.tumor}/{rule}.o'
     'R': '"span [hosts=1] rusage [mem=6144]"'
-estimate_properties:
+varlociraptor_estimate_properties:
     'J': '{wildcards.sample}_{rule}'
     'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'
-preprocess_sample:
+varlociraptor_preprocess_sample:
     'J': '{wildcards.sample}_{rule}'
     'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'

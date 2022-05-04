@@ -35,7 +35,7 @@ def map_vcf(wildcards):
     return V[wildcards.caller]
 
 def map_preprocess(wildcards):
-    return {'bam':BAMS[wildcards.sample],'bcf':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/candidate.bcf','aln':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/{wildcards.sample}.alignment-properties.json'}
+    return {'bam':BAMS[wildcards.sample],'bcf':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/candidates.bcf','aln':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/{wildcards.sample}.alignment-properties.json'}
 
 def map_varlociraptor_scenario(wildcards):
     tumor=wildcards.tumor
@@ -43,6 +43,7 @@ def map_varlociraptor_scenario(wildcards):
     filename=os.path.basename(config['analysis']['vlr'])
     #relapse1..n
     return {'tumor':f'data/work/{wildcards.lib}/{tumor}/varlociraptor/{tumor}.observations.bcf','normal':f'data/work/{wildcards.lib}/{tumor}/varlociraptor/{normal}.observations.bcf','scenario':f'data/work/{wildcards.lib}/{tumor}/varlociraptor/{filename}'}
+#change {sample}'s to tumor/normal'
 
 def genome_size(wildcards):
     G={'S04380110':'5.0e7','S07604715':'6.6e7','S31285117':'4.9e7','xgen-exome-research-panel-targets-grch37':'3.9e7'}
@@ -71,7 +72,7 @@ rule candidate_tsv:
     input:
         map_vcf
     output:
-        "data/work/{lib}/{tumor}/{caller}/candidate.tsv"
+        "data/work/{lib}/{tumor}/{caller}/candidates.tsv"
     shell:
         """
         bcftools query -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' {input} > {output}
@@ -81,15 +82,15 @@ rule candidate_tsv:
 #add manta?
 rule candidate_bcf:
     input:
-        "data/work/{lib}/{tumor}/lancet/candidate.tsv",
-        "data/work/{lib}/{tumor}/mutect2/candidate.tsv",
-        "data/work/{lib}/{tumor}/strelka2/candidate.tsv",
-        "data/work/{lib}/{tumor}/vardict/candidate.tsv",
-        "data/work/{lib}/{tumor}/varscan2/candidate.tsv"
+        "data/work/{lib}/{tumor}/lancet/candidates.tsv",
+        "data/work/{lib}/{tumor}/mutect2/candidates.tsv",
+        "data/work/{lib}/{tumor}/strelka2/candidates.tsv",
+        "data/work/{lib}/{tumor}/vardict/candidates.tsv",
+        "data/work/{lib}/{tumor}/varscan2/candidates.tsv"
     output:
-        "data/work/{lib}/{tumor}/varlociraptor/candidate.bcf"
+        "data/work/{lib}/{tumor}/varlociraptor/candidates.bcf"
     params:
-        tsv=temp("data/work/{lib}/{tumor}/varlociraptor/candidate.tsv"),
+        tsv=temp("data/work/{lib}/{tumor}/varlociraptor/candidates.tsv"),
         header="/home/bwubb/resources/Vcf_files/simplified-header-w_contig.vcf"#needs genome versioning? NEEDS all FILTER values if going to be used.
     shell:
         """
@@ -98,7 +99,7 @@ rule candidate_bcf:
         bcftools index {output}
         """
 
-rule estimate_properties:
+rule varlociraptor_estimate_properties:
     input:
         bam=lambda wildcards: BAMS[wildcards.sample]
     output:
@@ -110,7 +111,7 @@ rule estimate_properties:
         varlociraptor estimate alignment-properties {params.ref} --bam {input.bam} > {output}
         """
 
-rule preprocess_sample:
+rule varlociraptor_preprocess_sample:
     input:
         unpack(map_preprocess)
     output:
@@ -130,11 +131,10 @@ rule write_somatic_scenario:
     params:
         contamination=lambda wildcards: f"{1-float(PURITY.get(wildcards.tumor,'1.0')):.2f}"
     run:
-        with open({input.yaml},'r') as i:
-            scenario=yaml.load(i,Loader=yaml.BaseLoader)
-            scenario['samples']['tumor']['contamination']['fraction']={params.contamination}
-
-        with open({output.yaml},'w') as o:
+        with open(input.yaml,'r') as i:
+            scenario=yaml.load(i,Loader=yaml.SafeLoader)
+            scenario['samples']['tumor']['contamination']['fraction']=float(params.contamination)
+        with open(output.yaml,'w') as o:
             yaml.dump(scenario,o,default_flow_style=False)
 
 rule varlociraptor_scenario:
@@ -167,7 +167,7 @@ rule varlociraptor_vep:
         vcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf.gz",
         bcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.bcf"
     params:
-        in_vcf='data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vcf.gz',
+        in_vcf=temp('data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vcf'),
         out_vcf='data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf',
         assembly=config['reference']['key'],
         fa=config['reference']['fasta'],
@@ -180,10 +180,9 @@ rule varlociraptor_vep:
         utr=config['resources']['utr'],
         ref_fa="data/work/{lib}/{tumor}/varlociraptor/{scenario}.reference.fa",
         mut_fa="data/work/{lib}/{tumor}/varlociraptor/{scenario}.mutated.fa"
-    conda: "vep"
     shell:
         """
-        bcftools view -O v -o {params.in_vcf} {input} && tabix -fp vcf {params.in_vcf}
+        bcftools view -O v -o {params.in_vcf} {input}
 
         #if {{ conda env list | grep 'vep'; }} >/dev/null 2>&1; then source activate vep; fi
 

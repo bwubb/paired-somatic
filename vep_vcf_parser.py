@@ -21,6 +21,12 @@ class VEPannotation(object):
             self.calls=self.__get_calls__(vcfpy_record.calls)
         self.call_count=len(self.calls)
 
+    def in_region(self,intervals):
+        #integer start,end
+        if any([start<=int(self.fields['Start'])<=end for start,end in intervals]):
+            return True
+        return False
+
     @staticmethod
     def __get_calls__(record_calls):
         #PMBB data has some errors with Ref/Alt genotypes split across two records
@@ -52,26 +58,15 @@ class VEPannotation(object):
         #One day I want to write failed output to a separate vcf.
         for c in record_calls:
             #Custom errors for metrics
-            if c.gt_alleles!=[0,0] and c.data.get('AD',[0,0])!=[0,0]:
-                x=defaultdict(str)
-                x['Sample.ID']=c.sample
-                x['Sample.Depth']=f"{c.data.get('DP',0)}"
-                try:
-                    x['Sample.AltDepth']=f"{AD_check(c.data.get('AD',[0,0]))[1]}"
-                except IndexError as e:
-                    #report error
-                    index_error=True
-                    x['Sample.AltDepth']='.'
-                try:
-                    x['Sample.AltFrac']=f"{AD_check(c.data.get('AD',[0,0]))[1]/c.data.get('DP',0):.3f}"#round decimals
-                    x['Sample.Zyg']=f"{ZYG_check(c.data.get('GT','./.'),AD_check(c.data.get('AD',[0,0])))}"
-                except (ZeroDivisionError,IndexError,TypeError) as e:
-                    #report error
-                    zerodivision_error=True
-                    x['Sample.AltFrac']='.'
-                if all([v!='.' for k,v in x.items()]):
-                    if float(x['Sample.AltFrac'])>0:#
-                        _calls.append(x)
+            #This is all messed up in germline VLR.
+            #There is an AF but no AD
+            x=defaultdict(str)
+            x['Sample.ID']=c.sample
+            x['Sample.Depth']=f"{c.data.get('DP',0)}"
+            x['Sample.AltDepth']='.'
+            x['Sample.AltFrac']=f"{c.data.get('AF',[0.0])[0]}"
+            x['Sample.Zyg']={'0.0':'HOM_REF','0.5':'HET_ALT','1.0':'HOM_ALT'}.get(x['Sample.AltFrac'],'.')
+            _calls.append(x)
         return _calls
 
     @staticmethod
@@ -83,20 +78,29 @@ class VEPannotation(object):
                 x['Tumor.ID']=c.sample
                 x['Tumor.Depth']=f"{c.data.get('DP','.')}"
                 x['Tumor.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
-                x['Tumor.AltDepth']=f"{c.data.get('AD','')}"
+                x['Tumor.AltDepth']=f"{c.data.get('AD','.')}"
                 x['Tumor.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
                 #VLR does not like to give AD/AF. This is an unchecked estimation.
-                if AD=='' and AF!='.':
-                        AD=f"{int(c.data.get('DP','0'))*float(c.data.get('AF','0.0')):.0f}"
+                if x['Tumor.AltDepth']=='.' and x['Tumor.AltFrac']!='.':
+                        x['Tumor.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
             else:
                 x['Normal.ID']=c.sample
                 x['Normal.Depth']=f"{c.data.get('DP','.')}"
                 x['Normal.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
                 x['Normal.AltDepth']=f"{c.data.get('AD','.')}"
                 x['Normal.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
-                if AD=='' and AF!='.':
-                        AD=f"{int(c.data.get('DP','0'))*float(c.data.get('AF','0.0')):.0f}"
+                if x['Normal.AltDepth']=='.' and x['Normal.AltFrac']!='.':
+                        x['Normal.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
         return [x]
+
+    @staticmethod
+    def variant_type():
+        ##Ways to get this
+        #1 INFO Field information; preferred but non-standard for many vcf generation
+        #2 commandline argument; if vcf files are split by type
+        #3 filename; similar to above but less robust.
+        #4 Conditional logic?
+        return 'Imprecise_variant'
 
     def info(self,CSQ):
         #INFOS
@@ -104,7 +108,7 @@ class VEPannotation(object):
         self.fields['Gene.Accession']=CSQ['Gene']
         #self.fields['Genomeic.Region']=
         self.fields['Variant.Class']=CSQ['VARIANT_CLASS']
-        self.fields['Variant.Type']='Somatic_Tumor' #variant_type()
+        self.fields['Variant.Type']=self.variant_type()
         self.fields['Variant.Consequence']=CSQ['Consequence']
         self.fields['HGVSc']=CSQ['HGVSc'].split(':')[-1]
         self.fields['HGVSp']=CSQ['HGVSp'].split(':')[-1]
@@ -199,7 +203,7 @@ def report_header(annotations,tumor_normal=False):
 
     def loftree(tumor_normal=False):
         pass
-    
+
     def genotype(tumor_normal=False):
         if tumor_normal:
             return ['Tumor.Zyg','Tumor.Depth','Tumor.AltDepth','Tumor.AltFrac','Normal.Zyg','Normal.Depth','Normal.AltDepth','Normal.AltFrac']
@@ -234,18 +238,37 @@ def gene_list_check(fp):
         pass
     return False,[]
 
+def bed_region_check(fp):
+    #receive error for NoneType
+    try:
+        if os.path.isfile(fp):
+            bed_regions=defaultdict(list)
+            with open(fp,'r') as file:
+                reader=csv.reader(file,delimiter='\t')
+                for row in reader:
+                    bed_regions[row[0]].append([int(row[1]),int(row[2])])
+                return True,bed_regions
+    except TypeError:
+        pass
+    return False,{}
+
 def get_args(argv):
+    #make single tumor_normal cohort as subparser?
+    #scenrios may need some sort of sample id mapping file.
     p=argparse.ArgumentParser()
     p.add_argument('-i','--input_vcf',help='Input: vcf file from ensembl-vep.')
     p.add_argument('-o','--output_csv',help='Output: csv file trimmed for specific design.')
     p.add_argument('-g','--gene_list',help='Optional list of genes to include only.')
-    p.add_argument('-m','--mode',default='cohort',help='Run mode determines how calls are reported. Tumor/Normal should be "tumor_normal,{tumor.id},{normal.id}"')
+    p.add_argument('-r','--bed_region',help='Bed file format to subset regions.')
+    p.add_argument('-t','--variant_type',help='Optional value for column field.')
+    p.add_argument('-m','--mode',default='cohort',help='Run mode determines how calls are reported. Single should be "single,{sample.id}. Tumor/Normal should be "tumor_normal,{tumor.id},{normal.id}"')
     p.add_argument('annotations',nargs=argparse.REMAINDER,default='everything',choices=['everything','snv_prediction','gnomAD','splice_ai','clinvar','genotype','none'],help='annotation blocks to include')
     return p.parse_args(argv)
 
 def main(argv=None):
     args=get_args(argv)
     gene_filter,gene_list=gene_list_check(args.gene_list)
+    region_filter,bed_regions=bed_region_check(args.bed_region)
     annotation_check(args.annotations)
     #need better mode check
     if args.mode.startswith('tumor_normal'):
@@ -259,6 +282,16 @@ def main(argv=None):
         tumor_normal=False
         tumor=None
 
+    if args.mode.startswith('single'):
+        #def
+        z=args.mode.split(',')
+        single=True
+        sample=z[1]
+    else:
+        single=False
+        sample=None
+    #this is becoming a lot of if/else stuff.
+    #Need to clean up this main()
     #default everything is not working properly
     header=report_header(args.annotations,tumor_normal)
     #test data
@@ -272,6 +305,10 @@ def main(argv=None):
             if len(record.ALT)>1:
                 print(f"Warning! : record.ALT length is {len(record.ALT)}. Not currently supported")
             vep_data=VEPannotation(record,tumor_normal,tumor)
+            if 'CSQ' not in record.INFO:
+                # This is from those fucking * calls in haplotype caller.
+                #print(f'Missing CSQ: {record}')
+                continue
             for csq_i in record.INFO['CSQ']:
                 csq_dict=dict(zip(csq_keys,csq_i.split('|')))
                 if csq_dict['SYMBOL']!='' and csq_dict['CANONICAL']=='YES':
@@ -285,16 +322,20 @@ def main(argv=None):
                     if tumor_normal:
                         vep_data.calls[0]['Tumor.ID']=tumor
                         vep_data.calls[0]['Normal.ID']=normal
+
+                    if single:
+                        vep_data.calls[0]['Sample.ID']=sample
+
                     vep_data.fill_values(header)
                     #print(vep_data.print(header))
                     if gene_filter and vep_data.fields['Gene'] in gene_list:
                         vep_data.report(writer)
-                    elif not gene_filter:
+                    elif region_filter and vep_data.in_region(bed_regions[record.CHROM]):
+                        vep_data.report(writer)
+                    elif not gene_filter and not region_filter:
                         vep_data.report(writer)
                     else:
                         continue
-
-
 
 if __name__=='__main__':
     main()

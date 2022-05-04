@@ -10,14 +10,14 @@ samples:
       fraction: 0.0
 
 expressions:
-  ffpe: "(C>T | G>A) & ((tumor:0.0 & normal:]0.0,0.1]) | (tumor:]0.0,0.1] & normal:0.0))"
+  ffpe: '(C>T | G>A) & ((tumor:0.0 & normal:]0.0,0.1]) | (tumor:]0.0,0.1] & normal:0.0))'
 
 events:
   ffpe_artifact:
-    "$ffpe"
+    '$ffpe'
   germline:
-    "normal:0.5 | normal:1.0"
+    'normal:0.5 | normal:1.0'
   somatic_normal:
-    "normal:]0.0,0.5["
+    'normal:]0.0,0.5['
   somatic_tumor:
-    "normal:0.0 & tumor:]0.0,1.0] & !$ffpe"
+    'normal:0.0 & tumor:]0.0,1.0] & !$ffpe'

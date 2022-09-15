@@ -201,7 +201,7 @@ def report_header(annotations,tumor_normal=False):
     def clinvar(tumor_normal=False):
         return ['ClinVar','ClinVar.SIG','ClinVar.REVSTAT','ClinVar.DN']
 
-    def loftree(tumor_normal=False):
+    def loftee(tumor_normal=False):
         pass
 
     def genotype(tumor_normal=False):

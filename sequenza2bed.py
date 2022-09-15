@@ -28,7 +28,7 @@ def format_row(row,ucsc=False):
         type=[]
         if any([row['A']=='0',row['B']=='0']):
             type+=['loh']
-        elif [row['A']!=row['B']:
+        elif row['A']!=row['B']:
             type+=['imbalance']
         else:
             type+=['nonloh']

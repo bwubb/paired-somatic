@@ -21,7 +21,7 @@ def format_row(row,ucsc=False):
         type=[]
         if any([row['lcn.em']=='0',row['lcn.em']==row['tcn.em']]):
             type+=['loh']
-        elif all([row['lcn.em'] not in ['NA','0'],row['lcn.em']!=row['tcn.em']]):
+        elif all([row['lcn.em'] not in ['NA','0'],row['lcn.em']!=row['tcn.em'],row['tcn.em']!='2']):
             type+=['imbalance']
         else:
             type+=['nonloh']
@@ -32,7 +32,7 @@ def format_row(row,ucsc=False):
         elif int(row['tcn.em'])<2 and int(row['tcn.em'])>=1:
             type+=['loss']
         elif int(row['tcn.em'])<1:
-            type+=['tcn.em']
+            type+=['del']
         elif int(row['tcn.em'])==2:
             type+=['neutral']
         else:

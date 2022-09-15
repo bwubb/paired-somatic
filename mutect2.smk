@@ -7,7 +7,7 @@ with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
     for sample in SAMPLES:
         os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
-with open(config.get('project',{}).get('pair_table','pair.tble'),'r') as p:
+with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
 with open(config['project']['bam_table'],'r') as b:
@@ -29,6 +29,8 @@ wildcard_constraints:
 rule collect_mutect2:
     input: expand("data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
+rule unprocessed_mutect2:
+    input: expand("data/work/{lib}/{tumor}/mutect2/somatic.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 #rule three steps to create pon
 
 rule run_Mutect2:

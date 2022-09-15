@@ -60,6 +60,10 @@ rule collect_vep:
     input:
         expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
 
+rule tmb:
+    input:
+        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.svg",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
+
 rule sites:
     input:
         expand("data/work/{lib}/{tumor}/varlociraptor/sites.txt",lib=config['resources']['targets_key'],tumor=TUMORS)

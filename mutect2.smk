@@ -26,8 +26,8 @@ def paired_bams(wildcards):
 wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}"
 
-rule collect_mutect2:
-    input: expand("data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+rule filter_applied_mutect2:
+    input: expand("data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule unprocessed_mutect2:
     input: expand("data/work/{lib}/{tumor}/mutect2/somatic.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
@@ -47,7 +47,7 @@ rule run_Mutect2:
         intervals=config['resources']['targets_intervals'],
         tumor=lambda wildcards: wildcards.tumor,
         normal=lambda wildcards: PAIRS[wildcards.tumor],
-        memory='32g'
+        memory='16g'
     shell:
         """
         gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2}
@@ -72,7 +72,8 @@ rule Mutect2_GetPileupSummaries:
     output:
         pileup="{work_dir}/{tumor}/mutect2/getpileupsummaries.table"
     params:
-        allele=f"$HOME/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz",
+        allele=f"$HOME/resources/Vcf_files/gnomad.exomes.r2.1.1.sites.{config['reference']['key']}.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz",
+        #allele=config['analysis']['mutect2_common_snps'],
         intervals=config['resources']['targets_intervals']
     shell:
         "gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -L {params.intervals} -O {output.pileup}"
@@ -116,18 +117,18 @@ rule Mutect2_somatic_normalized:
         tabix -f -p vcf {output.clean}
         """
 
-rule Mutect2_somatic_standardized:
-    input:
-        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='mutect2'
-    shell:
-        """
-        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-        tabix -fp vcf {output}
-        """
+#rule Mutect2_somatic_standardized:
+#    input:
+#        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='mutect2'
+#    shell:
+#        """
+#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+#        tabix -fp vcf {output}
+#        """

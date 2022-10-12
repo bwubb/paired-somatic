@@ -1,7 +1,7 @@
 import os
 import csv
 
-include:"./sequenza.snake"
+include:"./sequenza2.smk"
 
 ### INIT ###
 
@@ -38,13 +38,13 @@ rule collect_varscan2:
 
 rule collect_varscan2_somatic:
     input:
-        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
-rule: collect_annotated_varscan2:
-    input:
-        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.vep.reporst.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+#rule collect_annotated_varscan2:
+#    input:
+#        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+#        expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.vep.reporst.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+#        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule pair_mpileup:
     input:
@@ -209,94 +209,33 @@ rule VarScan2_somatic_normalized:
         norm="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz",
         clean="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
     params:
-        regions=config['resources']['targets_bedgz']
+        regions=config['resources']['targets_bedgz'],
+        ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f /home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta -O z -o {output.norm}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
         tabix -f -p vcf {output.norm}
         bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
 
-rule varscan2_somatic_vep:
-    input:
-        "data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
-    output:
-        vcf="data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.vcf.gz
-    params:
-        out_vcf='data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.vcf
-        assembly=config['reference']['key'],
-        fa=config['reference']['fasta'],
-        splice_snv=config['resources']['splice_snv'],
-        splice_indel=config['resources']['splice_indel'],
-        gnomAD=config['resources']['gnomAD'],
-        clinvar=config['resources']['clinvar'],
-        revel=config['resources']['revel'],
-        loftee='$HOME/.vep/Plugins/loftee',#check
-        utr=config['resources']['utr']
-    shell:
-        """
-        bcftools view -O v -o {params.in_vcf} {input} && tabix -fp vcf {params.in_vcf}
-
-        #if {{ conda env list | grep 'vep'; }} >/dev/null 2>&1; then source activate vep; fi
-
-        vep -i {input} -o {params.out_vcf} \
-        --force_overwrite \
-        --offline \
-        --cache \
-        --format vcf \
-        --vcf \
-        --everything \
-        --canonical \
-        --assembly {params.assembly} \
-        --species homo_sapiens \
-        --fasta {params.fa} \
-        --plugin NMD \
-        --plugin REVEL,{params.revel} \
-        --plugin SpliceAI,snv={params.splice_snv},indel={params.splice_indel} \
-        --plugin gnomADc,{params.gnomAD} \
-        --plugin LoF,loftee_path:{params.loftee} \
-        --plugin UTRannotator,{params.utr} \
-        --custom {params.clinvar},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN
-
-        bgzip {params.out_vcf} && tabix -fp vcf {output.vcf}
-
-        #bcftools view -O b -o {output.bcf} {output.vcf}
-        #bcftools index -f {output.bcf}
-        """
 
 ###DEPRECIATED/
-rule VarScan2_somatic_standardized:
-    input:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='varscan2'
-    shell:
-        """
-        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-        tabix -fp vcf {output}
-        """
-#    script:
-#        "standardize_vcf.py"
-
-rule VarScan2_somatic_annotation:
-    input:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.hg19_multianno.vcf"
-    params:
-        outname="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std"
-    shell:
-        """
-        table_annovar.pl {input} /home/bwubb/resources/annovar/humandb/ --buildver hg19 --vcfinput --outfile {params.outname} --protocol refGene,cytoband,gwasCatalog,genomicSuperDups,dbscsnv11,dbnsfp33a,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,avsnp150,clinvar_20190305 --operation g,r,r,r,f,f,f,f,f,f,f,f -remove
-        bgzip {params.outname}.vcf
-        tabix -f -p vcf {output}
-        """
+#rule VarScan2_somatic_standardized:
+#    input:
+#        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='varscan2'
+#    shell:
+#        """
+#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+#        tabix -fp vcf {output}
+#        """
 ###/DEPRECIATED
 
 rule bamreadcount_loh_regions:
@@ -367,40 +306,28 @@ rule VarScan2_loh_normalized:
         clean="{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
+        ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f /home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta -O z -o {output.norm}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
         tabix -f -p vcf {output.norm}
         bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
 
-rule VarScan2_loh_standardized:
-    input:
-        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='varscan2'
-    script:
-        "standardize_vcf.py"
+#rule VarScan2_loh_standardized:
+#    input:
+#        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='varscan2'
+#    script:
+#        "standardize_vcf.py"
 
-rule VarScan2_loh_annotation:
-    input:
-        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.std.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.std.hg19_multianno.vcf.gz"
-    params:
-        outname="{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.std"
-    shell:
-        """
-        table_annovar.pl {input} /home/bwubb/resources/annovar/humandb/ --buildver hg19 --vcfinput --outfile {params.outname} --protocol refGene,cytoband,gwasCatalog,genomicSuperDups,dbscsnv11,dbnsfp33a,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,avsnp150,clinvar_20190305 --operation g,r,r,r,f,f,f,f,f,f,f,f -remove
-        bgzip {params.outname}.vcf
-        tabix -f -p vcf {output}
-        """
 rule bamreadcount_germline_regions:
     input:
         "{work_dir}/{tumor}/varscan2/germline.snp.vcf",
@@ -469,37 +396,24 @@ rule VarScan2_germline_normalized:
         clean="{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
+        ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f /home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta -O z -o {output.norm}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
         tabix -f -p vcf {output.norm}
         bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
 
-rule VarScan2_germline_standardized:
-    input:
-        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='varscan2'
-    script:
-        "standardize_vcf.py"
-
-rule VarScan2_germline_annotation:
-    input:
-        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.std.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.std.hg19_multianno.vcf"
-    params:
-        outname="{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.std"
-    shell:
-        """
-        table_annovar.pl {input} /home/bwubb/resources/annovar/humandb/ --buildver hg19 --vcfinput --outfile {params.outname} --protocol refGene,cytoband,gwasCatalog,genomicSuperDups,dbscsnv11,dbnsfp33a,popfreq_max_20150413,exac03,exac03nontcga,gnomad211_exome,avsnp150,clinvar_20190305 --operation g,r,r,r,f,f,f,f,f,f,f,f -remove
-        bgzip {params.outname}.vcf
-        tabix -f -p vcf {output}
-        """
+#rule VarScan2_germline_standardized:
+#    input:
+#        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='varscan2'
+#    script:
+#        "standardize_vcf.py"

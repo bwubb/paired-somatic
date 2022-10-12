@@ -29,13 +29,13 @@ localrules: collect_lancet
 wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}"
 
-rule collect_lancet:
+rule processed_lancet:
     input:
         expand("data/work/{lib}/{tumor}/lancet/somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
-rule final_lancet:
+rule unprocessed_lancet:
     input:
-        expand("data/final/{lib}/{tumor}/lancet/{tumor}.somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/lancet/somatic.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule run_lancet:
     input:

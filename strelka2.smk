@@ -41,7 +41,7 @@ rule write_Manta:
         bedgz=config['resources']['targets_bedgz']
     shell:
         "$HOME/software/manta/bin/configManta.py --normalBam {input.normal} --tumorBam {input.tumor} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.runDir}"
-    
+
 rule run_Manta:
     input:
         "{work_dir}/{tumor}/manta/runWorkflow.py"
@@ -113,20 +113,20 @@ rule Strelka2_somatic_normalized:
         tabix -f -p vcf {output.clean}
         """
 
-rule Strelka2_somatic_standardized:
-    input:
-        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='strelka2'
-    shell:
-        """
-        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-        tabix -fp vcf {output}
-        """
+#rule Strelka2_somatic_standardized:
+#    input:
+#        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='strelka2'
+#    shell:
+#        """
+#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+#        tabix -fp vcf {output}
+#        """
 #    script:
 #        "standardize_vcf.py"

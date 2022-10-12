@@ -28,3 +28,7 @@ run_Strelka2:
     'M': '18432'
     'nt': '4'
     'R': '"span [hosts=1] rusage [mem=18432]"'
+run_lancet:
+    'M': '32768'
+    'nt': '4'
+    'R': '"span [hosts=1] rusage [mem=32768]"'

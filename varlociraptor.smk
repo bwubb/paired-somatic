@@ -27,11 +27,11 @@ TUMORS=PAIRS.keys()
 
 ##PYTHON
 def map_vcf(wildcards):
-    V={'lancet':f'data/final/{wildcards.lib}/{wildcards.tumor}/lancet/{wildcards.tumor}.somatic.norm.clean.vcf.gz',
-    'mutect2':f'data/final/{wildcards.lib}/{wildcards.tumor}/mutect2/{wildcards.tumor}.somatic.filtered.norm.clean.vcf.gz',
-    'strelka2':f'data/final/{wildcards.lib}/{wildcards.tumor}/strelka2/{wildcards.tumor}.somatic.norm.clean.vcf.gz',
-    'vardict':f'data/final/{wildcards.lib}/{wildcards.tumor}/vardict/{wildcards.tumor}.somatic.twice_filtered.norm.clean.vcf.gz',
-    'varscan2':f'data/final/{wildcards.lib}/{wildcards.tumor}/varscan2/{wildcards.tumor}.somatic.fpfilter.norm.clean.vcf.gz'}
+    V={'lancet':f'data/work/{wildcards.lib}/{wildcards.tumor}/lancet/somatic.norm.clean.vcf.gz',
+    'mutect2':f'data/work/{wildcards.lib}/{wildcards.tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz',
+    'strelka2':f'data/work/{wildcards.lib}/{wildcards.tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz',
+    'vardict':f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',
+    'varscan2':f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz'}
     return V[wildcards.caller]
 
 def map_preprocess(wildcards):
@@ -46,7 +46,7 @@ def map_varlociraptor_scenario(wildcards):
 #change {sample}'s to tumor/normal'
 
 def genome_size(wildcards):
-    G={'S04380110':'5.0e7','S07604715':'6.6e7','S31285117':'4.9e7','xgen-exome-research-panel-targets-grch37':'3.9e7'}
+    G={'S04380110':'5.0e7','S07604715':'6.6e7','S31285117':'4.9e7','xgen-exome-research-panel-targets-grch37':'3.9e7','':'4.9e7','XGEN-EXOME-HYB-V2':'3.4e7'}
     return G[config['resources']['targets_key']]
 
 ##TARGET RULES
@@ -79,9 +79,9 @@ rule candidate_tsv:
         "data/work/{lib}/{tumor}/{caller}/candidates.tsv"
     shell:
         """
-        bcftools query -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' {input} > {output}
+        bcftools query -i 'FILTER=\"PASS\"' -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' {input} > {output}
         """
-    #removed -i 'FILTER=\"PASS\"' from query
+    #
 
 #add manta?
 rule candidate_bcf:
@@ -121,7 +121,7 @@ rule varlociraptor_preprocess_sample:
     output:
         "data/work/{lib}/{tumor}/varlociraptor/{sample}.observations.bcf"
     params:
-        ref='/home/bwubb/resources/Genomes/Human/GRCh37/human_g1k_v37.fasta'
+        ref=config['reference']['fasta']
     shell:
         """
         varlociraptor preprocess variants {params.ref} --alignment-properties {input.aln} --bam {input.bam} --candidates {input.bcf} > {output}
@@ -181,7 +181,7 @@ rule varlociraptor_vep:
         clinvar=config['resources']['clinvar'],
         revel=config['resources']['revel'],
         loftee='$HOME/.vep/Plugins/loftee',#check
-        utr=config['resources']['utr'],
+        utr=config['resources']['utrannotator'],
         ref_fa="data/work/{lib}/{tumor}/varlociraptor/{scenario}.reference.fa",
         mut_fa="data/work/{lib}/{tumor}/varlociraptor/{scenario}.mutated.fa"
     shell:
@@ -254,7 +254,7 @@ rule bcftools_isec:
         vardict="data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",
         varscan2="data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
     output:
-        "data/work/{lib}/{tumor}/varlociraptor/sites.txt"
+        "data/work/{lib}/{tumor}/varlociraptor/somatic_sites.txt"
     shell:
         """
         bcftools isec -n+1 {input.lancet} {input.mutect2} {input.strelka2} {input.vardict} {input.varscan2} > {output}

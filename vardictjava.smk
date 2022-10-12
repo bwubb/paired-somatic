@@ -26,15 +26,16 @@ def paired_bams(wildcards):
 wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}"
 
+#switch to 1filter/2filter
 rule collect_vardict:
     input:
-        expand("data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/vardict/loh.twice_filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/vardict/germline.twice_filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        expand("data/work/{lib}/{tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        expand("data/work/{lib}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule collect_vardict_somatic:
     input:
-        expand("data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule collect_vardict_unpaired:
     input:
@@ -130,23 +131,21 @@ rule VarDict_somatic_normalized:
         tabix -f -p vcf {output.clean}
         """
 
-rule VarDict_somatic_standardized:
-    input:
-        "{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='vardict'
-    shell:
-        """
-        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-        tabix -fp vcf {output}
-        """
-#    script:
-#        "standardize_vcf.py"
+#rule VarDict_somatic_standardized:
+#    input:
+#        "{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='vardict'
+#    shell:
+#        """
+#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+#        tabix -fp vcf {output}
+#        """
 
 rule VarDict_loh_normalized:
     input:
@@ -165,21 +164,21 @@ rule VarDict_loh_normalized:
         tabix -f -p vcf {output.clean}
         """
 
-rule VarDict_loh_standardized:
-    input:
-        "{work_dir}/{tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/vardict/loh.twice_filtered.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='vardict'
-    shell:
-        """
-        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-        tabix -fp vcf {output}
-        """
+#rule VarDict_loh_standardized:
+#    input:
+#        "{work_dir}/{tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/vardict/loh.twice_filtered.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='vardict'
+#    shell:
+#        """
+#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+#        tabix -fp vcf {output}
+#        """
 
 rule VarDict_germline_normalized:
     input:
@@ -198,18 +197,18 @@ rule VarDict_germline_normalized:
         tabix -f -p vcf {output.clean}
         """
 
-rule VarDict_germline_standardized:
-    input:
-        "{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
-    output:
-        "{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.clean.std.vcf.gz"
-    params:
-        tumor=lambda wildcards: wildcards.tumor,
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        lib=config['resources']['targets_key'],
-        mode='vardict'
-    shell:
-        """
-        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-        tabix -fp vcf {output}
-        """
+#rule VarDict_germline_standardized:
+#    input:
+#        "{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
+#    output:
+#        "{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.clean.std.vcf.gz"
+#    params:
+#        tumor=lambda wildcards: wildcards.tumor,
+#        normal=lambda wildcards: PAIRS[wildcards.tumor],
+#        lib=config['resources']['targets_key'],
+#        mode='vardict'
+#    shell:
+#        """
+#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
+#        tabix -fp vcf {output}
+#        """

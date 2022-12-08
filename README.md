@@ -118,5 +118,5 @@ Algorithm to implement Fraction and Allele specific Copy number Estimate from Tu
 ## Additional Resources
 
 ### dbSNP
-   [https://ftp.ncbi.nlm.nih.gov/snp/latest_release/VCF/]
-   Filtered for common snps
+[https://ftp.ncbi.nlm.nih.gov/snp/latest_release/VCF/]
+Filtered for common snps. `bcftools filter -i'TYPE="snp" & COMMON=1'`

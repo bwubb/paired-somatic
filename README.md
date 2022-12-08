@@ -115,3 +115,8 @@ Algorithm to implement Fraction and Allele specific Copy number Estimate from Tu
   * ClinVAR
   * ~~LoFTee~~
   
+## Additional Resources
+
+### dbSNP
+   [https://ftp.ncbi.nlm.nih.gov/snp/latest_release/VCF/]
+   Filtered for common snps

@@ -72,7 +72,9 @@ rule Sequenza_bin_byChr:
         #50 for exome 200 for genome
         bin=50
     shell:
-        "sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}"
+        """
+        sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}
+        """
 
 rule Sequenza_combine_seqz:
     input:
@@ -96,15 +98,50 @@ rule Sequenza_extract:
     threads:
         4
     shell:
-        "Rscript sequenza-snakemake.R --id {wildcards.tumor} --input {input} --outdir {params.outdir} --threads {threads}"
+        """
+        Rscript sequenza-snakemake.R --id {wildcards.tumor} --input {input} --outdir {params.outdir} --threads {threads}
+        """
+
+rule Sequenza_2bed:
+    input:
+        "{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
+    output:
+        "{work_dir}/{tumor}/sequenza/segments.bed"
+    shell:
+        """
+        python sequenza2bed.py {intput} > {output}
+        """
+
+rule Sequenza_AnnotSV:
+    input:
+        "{work_dir}/{tumor}/sequenza/segments.bed"
+    output:
+        "{work_dir}/{tumor}/sequenza/annotsv.gene_split.tsv"
+    params:
+        build=config['reference']['key']
+    shell:
+        """
+        AnnotSV -SVinputFile {input} -annotationMode split -genomeBuild {params.build} -tx ENSEMBL -outputFile {output}
+        """
+
+rule Sequenza_AnnotSV_parser:
+    input:
+        "{work_dir}/{tumor}/sequenza/annotsv.gene_split.tsv"
+    output:
+        "{work_dir}/{tumor}/sequenza/annotsv_gene_split.report.csv"
+    shell:
+        """
+        python annotsv_parser.py -i {intput} -o {output} --tumor {wildcards.tumor}
+        """
 
 rule Sequenza_hrd:
     input:
-        segments="{work_dir}/{tumor}/sequenza/{tumor}_segments.txt",
-        confints="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt",
+        segments="{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
     output:
         "{work_dir}/{tumor}/sequenza/{tumor}_hrd.txt"
     params:
-        ref=config['reference']['key'].lower()
+        build=config['reference']['key'].lower()
     shell:
-        "Rscript $HOME/software/HRDex/R/HRD_wrapper.R {input.segments} {params.ref} {wildcards.tumor} > {output}"
+        """
+        Rscript $HOME/software/HRDex/R/HRD_wrapper.R -i {input} -o {output} --tumor {wildcards.tumor} --build {params.build}
+        """

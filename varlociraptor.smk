@@ -25,11 +25,16 @@ with open(config.get('analysis',{}).get('purity_table','purity.table'),'r') as u
 
 TUMORS=PAIRS.keys()
 
+with open('sample.name','w') as name_file:
+    name_file.write("TUMOR tumor\n")
+    for i in TUMORS:
+        name_file.write(f"{i} tumor\n")
+
 ##PYTHON
 def map_vcf(wildcards):
     V={'lancet':f'data/work/{wildcards.lib}/{wildcards.tumor}/lancet/somatic.norm.clean.vcf.gz',
     'mutect2':f'data/work/{wildcards.lib}/{wildcards.tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz',
-    'strelka2':f'data/work/{wildcards.lib}/{wildcards.tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz',
+    'strelka2':f'data/work/{wildcards.lib}/{wildcards.tumor}/strelka2/somatic.norm.clean.vcf.gz',
     'vardict':f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',
     'varscan2':f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz'}
     return V[wildcards.caller]
@@ -62,7 +67,7 @@ rule collect_vep:
 
 rule tmb:
     input:
-        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.svg",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
+        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.json",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
 
 rule sites:
     input:
@@ -72,16 +77,23 @@ rule sites:
 wildcard_constraints:
     scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0]
 
+
 rule candidate_tsv:
     input:
         map_vcf
     output:
         "data/work/{lib}/{tumor}/{caller}/candidates.tsv"
+    params:
+        file="sample.name"
     shell:
         """
-        bcftools query -i 'FILTER=\"PASS\"' -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' {input} > {output}
+        bcftools reheader -s {params.file} {input} | bcftools view -s tumor -i '(FORMAT/DP * FORMAT/AF) > 8.0' | bcftools query -i 'FILTER=\"PASS\"' -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' > {output}
         """
-    #
+    #ALL input vcfs should be reheadered some way. There are many options.
+    #reheader is nice because you can change the names directly without messing the order.
+    #Need to write a rename file.
+    #added aproximate alt depth filter.
+    #I may need to change this and add it to clean.vcf
 
 #add manta?
 rule candidate_bcf:
@@ -168,8 +180,7 @@ rule varlociraptor_vep:
     input:
         "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.bcf"
     output:
-        vcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf.gz",
-        bcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.bcf"
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf.gz"
     params:
         in_vcf=temp('data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vcf'),
         out_vcf='data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf',
@@ -188,8 +199,6 @@ rule varlociraptor_vep:
         """
         bcftools view -O v -o {params.in_vcf} {input}
 
-        #if {{ conda env list | grep 'vep'; }} >/dev/null 2>&1; then source activate vep; fi
-
         vep -i {params.in_vcf} -o {params.out_vcf} \
         --force_overwrite \
         --offline \
@@ -201,21 +210,21 @@ rule varlociraptor_vep:
         --assembly {params.assembly} \
         --species homo_sapiens \
         --fasta {params.fa} \
+        --vcf_info_field ANN \
         --plugin NMD \
         --plugin ProteinSeqs,{params.ref_fa},{params.mut_fa} \
         --plugin Downstream \
         --plugin REVEL,{params.revel} \
         --plugin SpliceAI,snv={params.splice_snv},indel={params.splice_indel} \
         --plugin gnomADc,{params.gnomAD} \
-        --plugin LoF,loftee_path:{params.loftee} \
         --plugin UTRannotator,{params.utr} \
         --custom {params.clinvar},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN
 
-        bgzip {params.out_vcf} && tabix -fp vcf {output.vcf}
-
-        bcftools view -O b -o {output.bcf} {output.vcf}
-        bcftools index -f {output.bcf}
+        bgzip {params.out_vcf}
+        tabix -fp vcf {output}
         """
+        #if {{ conda env list | grep 'vep'; }} >/dev/null 2>&1; then source activate vep; fi
+        #--plugin LoF,loftee_path:{params.loftee}
         #move ref mut fa to output after testing is complete.
         #possibly bgzip/index output fasta file
 
@@ -233,17 +242,17 @@ rule varlociraptor_vep_report:
 
 rule varlociraptor_estimate_mutational_burden:
     input:
-        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.bcf"
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf.gz"
     output:
-        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.json",
-        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.svg"
+        bcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.bcf",
+        json="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.json"
+        #"data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.svg"
     params:
         size=genome_size
-        #--vaf-cutoff <cutoff>
     shell:
         """
-        varlociraptor estimate mutational-burden --plot-mode curve --coding-genome-size {params.size} --sample tumor --events SOMATIC_TUMOR < {input} > {output[0]}
-        vl2svg {output[0]} {output[1]}
+        bcftools view -O b -o {output.bcf} {input}
+        varlociraptor estimate mutational-burden --plot-mode curve --coding-genome-size {params.size} --sample tumor --events SOMATIC_TUMOR < {output.bcf} > {output.json}
         """
 
 rule bcftools_isec:

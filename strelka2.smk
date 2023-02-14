@@ -28,7 +28,7 @@ wildcard_constraints:
 
 rule collect_strelka2:
     input:
-        expand("data/work/{lib}/{tumor}/strelka2/results/variants/somatic.norm.clean.std.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/strelka2/somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule write_Manta:
     input:
@@ -100,8 +100,8 @@ rule Strelka2_somatic_normalized:
     input:
         "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.vcf.gz",
-        clean="{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz"
+        norm="{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz",
+        clean="{work_dir}/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
@@ -112,21 +112,3 @@ rule Strelka2_somatic_normalized:
         bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
-
-#rule Strelka2_somatic_standardized:
-#    input:
-#        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.vcf.gz"
-#    output:
-#        "{work_dir}/{tumor}/strelka2/results/variants/somatic.norm.clean.std.vcf.gz"
-#    params:
-#        tumor=lambda wildcards: wildcards.tumor,
-#        normal=lambda wildcards: PAIRS[wildcards.tumor],
-#        lib=config['resources']['targets_key'],
-#        mode='strelka2'
-#    shell:
-#        """
-#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-#        tabix -fp vcf {output}
-#        """
-#    script:
-#        "standardize_vcf.py"

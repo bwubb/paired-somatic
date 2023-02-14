@@ -30,21 +30,16 @@ wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
     results_dir=f"data/final/{config['project']['name']}"
 
-rule collect_varscan2:
+rule filter_applied_varscan2:
     input:
         expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
         expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
         expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
-rule collect_varscan2_somatic:
+rule filter_applied_varscan2_somatic:
     input:
         expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
-#rule collect_annotated_varscan2:
-#    input:
-#        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-#        expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.vep.reporst.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-#        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vep.report.csv",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule pair_mpileup:
     input:
@@ -219,25 +214,6 @@ rule VarScan2_somatic_normalized:
         tabix -f -p vcf {output.clean}
         """
 
-
-###DEPRECIATED/
-#rule VarScan2_somatic_standardized:
-#    input:
-#        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
-#    output:
-#        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.std.vcf.gz"
-#    params:
-#        tumor=lambda wildcards: wildcards.tumor,
-#        normal=lambda wildcards: PAIRS[wildcards.tumor],
-#        lib=config['resources']['targets_key'],
-#        mode='varscan2'
-#    shell:
-#        """
-#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-#        tabix -fp vcf {output}
-#        """
-###/DEPRECIATED
-
 rule bamreadcount_loh_regions:
     input:
         "{work_dir}/{tumor}/varscan2/loh.snp.vcf",
@@ -315,19 +291,6 @@ rule VarScan2_loh_normalized:
         tabix -f -p vcf {output.clean}
         """
 
-#rule VarScan2_loh_standardized:
-#    input:
-#        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz"
-#    output:
-#        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.std.vcf.gz"
-#    params:
-#        tumor=lambda wildcards: wildcards.tumor,
-#        normal=lambda wildcards: PAIRS[wildcards.tumor],
-#        lib=config['resources']['targets_key'],
-#        mode='varscan2'
-#    script:
-#        "standardize_vcf.py"
-
 rule bamreadcount_germline_regions:
     input:
         "{work_dir}/{tumor}/varscan2/germline.snp.vcf",
@@ -404,16 +367,3 @@ rule VarScan2_germline_normalized:
         bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
-
-#rule VarScan2_germline_standardized:
-#    input:
-#        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
-#    output:
-#        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.std.vcf.gz"
-#    params:
-#        tumor=lambda wildcards: wildcards.tumor,
-#        normal=lambda wildcards: PAIRS[wildcards.tumor],
-#        lib=config['resources']['targets_key'],
-#        mode='varscan2'
-#    script:
-#        "standardize_vcf.py"

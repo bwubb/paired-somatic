@@ -1,4 +1,4 @@
-#"Reference and variant allele read counts were extraced from the bams files for germline polymorphic 
+#"Reference and variant allele read counts were extraced from the bams files for germline polymorphic
 #sites cataloagues in the dvSNP and 1000genome databases."
 
 with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
@@ -31,8 +31,7 @@ wildcard_constraints:
 
 rule collect_facets:
     input:
-        expand("data/work/{lib}/{tumor}/facets/segmentation_cncf.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
+        expand("data/work/{lib}/{tumor}/facets/{tumor}_segments.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
 #input quality can be adjusted
 rule facets_pileup:
@@ -42,6 +41,7 @@ rule facets_pileup:
         temp("{work_dir}/{tumor}/facets/pileup.csv.gz")
     params:
         snp=gnomad_snp
+        #config['resources']['dbsnp']
     shell:
         """
         snp-pileup -g -q15 -Q20 -P100 -r25,0 {params.snp} {output} {input.normal} {input.tumor}
@@ -52,8 +52,10 @@ rule run_facets:
     input:
         "{work_dir}/{tumor}/facets/pileup.csv.gz"
     output:
-        "{work_dir}/{tumor}/facets/segmentation_cncf.csv"
+        "{work_dir}/{tumor}/facets/{tumor}_segments.txt"
     params:
         cval=150
-    script:
-        "facets-snakemake.R"
+    shell:
+        """
+        Rscript facets-snakemake.R --id {wildcards.tumor} --input {input} --cval {params.cval}
+        """

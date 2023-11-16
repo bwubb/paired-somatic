@@ -114,7 +114,9 @@ rule copy_sequenza:
     input:
         "data/work/{config['resources']['targets_key']}/{tumor}/sequenza/{tumor}_segments.txt",
         "data/work/{config['resources']['targets_key']}/{tumor}/sequenza/{tumor}_confints_CP.txt",
-        "data/work/{config['resources']['targets_key']}/{tumor}/sequenza/{tumor}_model_fit.pdf"
+        "data/work/{config['resources']['targets_key']}/{tumor}/sequenza/{tumor}_model_fit.pdf",
+        #alternate fits.,
+        #hrd
     output:
         "data/final/{tumor}/{tumor}.sequenza.segments.txt",
         "data/final/{tumor}/{tumor}.sequenza.confints_CP.txt",

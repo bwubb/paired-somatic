@@ -21,9 +21,10 @@ def paired_bams(wildcards):
 
 #gnomad is not enough
 #need dbsnp
-def gnomad_snp(wildcards):
-    #return f"/home/bwubb/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz"
-    return f"/home/bwubb/resources/Vcf_files/dbsnp151.snps.20180423.vcf.gz"
+
+#def gnomad_snp(wildcards):
+#    #return f"/home/bwubb/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz"
+#    return f"/home/bwubb/resources/Vcf_files/dbsnp151.snps.20180423.vcf.gz"
 
 wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
@@ -33,6 +34,14 @@ rule collect_facets:
     input:
         expand("data/work/{lib}/{tumor}/facets/{tumor}_segments.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
+rule collect_facets_hrd:
+    input:
+        expand("data/work/{lib}/{tumor}/facets/{tumor}_hrd.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
+
+rule collect_facets_annotation:
+    input:
+        expand("data/work/{lib}/{tumor}/facets/annotsv_gene_split.report.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
+
 #input quality can be adjusted
 rule facets_pileup:
     input:
@@ -40,8 +49,9 @@ rule facets_pileup:
     output:
         temp("{work_dir}/{tumor}/facets/pileup.csv.gz")
     params:
-        snp=gnomad_snp
-        #config['resources']['dbsnp']
+        #snp=gnomad_snp
+        #snp=config['resources']['dbsnp']
+        snp="$HOME/resources/Vcf_files/dbsnp156.GCF_000001405.40.GRCh38.contig.sort.vcf.gz"
     shell:
         """
         snp-pileup -g -q15 -Q20 -P100 -r25,0 {params.snp} {output} {input.normal} {input.tumor}
@@ -52,10 +62,54 @@ rule run_facets:
     input:
         "{work_dir}/{tumor}/facets/pileup.csv.gz"
     output:
-        "{work_dir}/{tumor}/facets/{tumor}_segments.txt"
+        "{work_dir}/{tumor}/facets/segmentation_cncf.csv"
     params:
         cval=150
     shell:
         """
         Rscript facets-snakemake.R --id {wildcards.tumor} --input {input} --cval {params.cval}
+        """
+
+rule facets_2bed:
+    input:
+        "{work_dir}/{tumor}/facets/segmentation_cncf.csv"
+    output:
+        "{work_dir}/{tumor}/facets/segmentation_cncf.bed"
+    shell:
+        """
+        python facets2bed.py {input}
+        """
+
+rule facets_AnnotSV:
+    input:
+        "{work_dir}/{tumor}/facets/segmentation_cncf.bed"
+    output:
+        "{work_dir}/{tumor}/facets/annotsv.gene_split.tsv"
+    params:
+        build=config['reference']['key']
+    shell:
+        """
+        AnnotSV -SVinputFile {input} -annotationMode split -genomeBuild {params.build} -tx ENSEMBL -outputFile {output}
+        """
+
+rule facets_AnnotSV_parser:
+    input:
+        "{work_dir}/{tumor}/facets/annotsv.gene_split.tsv"
+    output:
+        "{work_dir}/{tumor}/facets/annotsv_gene_split.report.csv"
+    shell:
+        """
+        python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.tumor}
+        """
+
+rule facets_hrd:
+    input:
+        segments="{work_dir}/{tumor}/facets/{tumor}_segments.txt"
+    output:
+        "{work_dir}/{tumor}/facets/{tumor}_hrd.txt"
+    params:
+        build=config['reference']['key'].lower()
+    shell:
+        """
+        Rscript $HOME/software/HRDex/R/run_HRDex.R -i {input} -o {output} --tumor {wildcards.tumor} --build {params.build}
         """

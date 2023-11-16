@@ -1,6 +1,7 @@
 ###facets-snakemake.R
 
-library("facets")
+library(facets)
+library(argparse)
 
 
 p<-ArgumentParser()
@@ -35,4 +36,4 @@ write.csv(fit$cncf,file=paste(outpath,"segmentation_cncf.csv",sep="/"),row.names
 
 #seq.cols.needed = c("chromosome", "start.pos", "end.pos", "CNt", "A", "B")
 segments.txt=data.frame("chromosome"=fit$cncf$chrom, "start.pos"=fit$cncf$start,"end.pos"=fit$cncf$end,"CNt"=fit$cncf$tcn.em,"A"=fit$cncf$tcn.em-fit$cncf$lcn.em,"B"=fit$cncf$lcn.em)
-write.table(segments.txt,file=paste(outpath,pasete0(args$id,"_segments.txt"),sep="/"),sep="\t",row.names=FALSE,quote=FALSE)
+write.table(segments.txt,file=paste(outpath,paste0(args$id,"_segments.txt"),sep="/"),sep="\t",row.names=FALSE,quote=FALSE)

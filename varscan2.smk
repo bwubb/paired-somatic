@@ -30,16 +30,15 @@ wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
     results_dir=f"data/final/{config['project']['name']}"
 
+rule filter_applied_varscan2_somatic:
+    input:
+        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+
 rule filter_applied_varscan2:
     input:
         expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
         expand("data/work/{lib}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
         expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
-
-rule filter_applied_varscan2_somatic:
-    input:
-        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
-
 
 rule pair_mpileup:
     input:
@@ -201,16 +200,35 @@ rule VarScan2_somatic_normalized:
     input:
         "{work_dir}/{tumor}/varscan2/somatic.fpfilter.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz",
-        clean="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
+        norm="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz"
     params:
-        regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
     shell:
         """
         bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
         tabix -f -p vcf {output.norm}
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        """
+
+rule VarScan2_somatic_clean:
+    input:
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz"
+    output:
+        name="{work_dir}/{tumor}/varscan2/sample.name",
+        clean="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        fai=f"{config['reference']['fasta']}.fai",
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        vcf=temp("{work_dir}/{tumor}/varscan2/temp.h.vcf.gz")
+    shell:
+        """
+        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
+        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+
+        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
+        bcftools index {params.vcf}
+
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
 
@@ -278,16 +296,36 @@ rule VarScan2_loh_normalized:
     input:
         "{work_dir}/{tumor}/varscan2/loh.fpfilter.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.vcf.gz",
-        clean="{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
-        tabix -f -p vcf {output.norm}
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output}
+        tabix -f -p vcf {output}
+        """
+
+rule VarScan2_loh_clean:
+    input:
+        "{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.vcf.gz"
+    output:
+        name="{work_dir}/{tumor}/varscan2/sample.loh.name",
+        clean="{work_dir}/{tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        fai=f"{config['reference']['fasta']}.fai",
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        vcf=temp("{work_dir}/{tumor}/varscan2/temp.loh.vcf.gz")
+    shell:
+        """
+        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
+        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+
+        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
+        bcftools index {params.vcf}
+
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
 
@@ -355,15 +393,35 @@ rule VarScan2_germline_normalized:
     input:
         "{work_dir}/{tumor}/varscan2/germline.fpfilter.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.vcf.gz",
-        clean="{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
-        tabix -f -p vcf {output.norm}
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output}
+        tabix -f -p vcf {output}
+        """
+
+rule VarScan2_germline_clean:
+    input:
+        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.vcf.gz"
+    output:
+        name="{work_dir}/{tumor}/varscan2/sample.g.name",
+        clean="{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        fai=f"{config['reference']['fasta']}.fai",
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        vcf=temp("{work_dir}/{tumor}/varscan2/temp.g.vcf.gz")
+    shell:
+        """
+        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
+        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+
+        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
+        bcftools index {params.vcf}
+
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """

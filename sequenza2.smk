@@ -38,6 +38,17 @@ rule collect_hrd:
     input:
         expand("data/work/{lib}/{tumor}/sequenza/{tumor}_hrd.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
+rule collect_purity:
+    input:
+        "purity.table"
+
+rule collect_ploidy:
+    input:
+        "ploidy.table"
+
+rule collect_annotsv:
+    input:
+        expand("data/work/{lib}/{tumor}/sequenza/annotsv_gene_split.report.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 #This can be parallelized; divided into chr.seqz.gz
 #probably combined after binning. each file has same header
 #zcat sample_chr1.seqz.gz sample_chr1.seqz.gz | \
@@ -106,15 +117,16 @@ rule Sequenza_2bed:
     input:
         "{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
     output:
-        "{work_dir}/{tumor}/sequenza/segments.bed"
+        "{work_dir}/{tumor}/sequenza/{tumor}_segments.bed"
     shell:
         """
-        python sequenza2bed.py {intput} > {output}
+        python sequenza2bed.py {input}
         """
+        #change it to write to stdout if output arg isnt given?
 
 rule Sequenza_AnnotSV:
     input:
-        "{work_dir}/{tumor}/sequenza/segments.bed"
+        "{work_dir}/{tumor}/sequenza/{tumor}_segments.bed"
     output:
         "{work_dir}/{tumor}/sequenza/annotsv.gene_split.tsv"
     params:
@@ -131,7 +143,7 @@ rule Sequenza_AnnotSV_parser:
         "{work_dir}/{tumor}/sequenza/annotsv_gene_split.report.csv"
     shell:
         """
-        python annotsv_parser.py -i {intput} -o {output} --tumor {wildcards.tumor}
+        python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.tumor}
         """
 
 rule Sequenza_hrd:
@@ -143,5 +155,37 @@ rule Sequenza_hrd:
         build=config['reference']['key'].lower()
     shell:
         """
-        Rscript $HOME/software/HRDex/R/HRD_wrapper.R -i {input} -o {output} --tumor {wildcards.tumor} --build {params.build}
+        Rscript $HOME/software/HRDex/R/run_HRDex.R -i {input} -o {output} --tumor {wildcards.tumor} --build {params.build}
         """
+
+rule purity_table:
+    input:
+        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_confints_CP.txt",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+    output:
+        "purity.table"
+    run:
+        with open(output[0],'w') as outfile:
+            for f in input:
+                sampleid=os.path.basename(f).split('_')[0]
+                with open(f,'r') as infile:
+                    line=infile.readline()#header
+                    line=infile.readline()#line1
+                    line=infile.readline()#line2
+                    cellularity=line.rstrip().split('\t')[0]
+                outfile.write(f'{sampleid}\t{cellularity}\n')
+
+rule ploidy_table:
+    input:
+        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_confints_CP.txt",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+    output:
+        "ploidy.table"
+    run:
+        with open(output[0],'w') as outfile:
+            for f in input:
+                sampleid=os.path.basename(f).split('_')[0]
+                with open(f,'r') as infile:
+                    line=infile.readline()#header
+                    line=infile.readline()#line1
+                    line=infile.readline()#line2
+                    ploidy=line.rstrip().split('\t')[1]
+                outfile.write(f'{sampleid}\t{ploidy}\n')

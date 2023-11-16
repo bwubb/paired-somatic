@@ -103,6 +103,7 @@ class VEPannotation(object):
                 #VLR does not like to give AD/AF. This is an unchecked estimation.
                 if x['Tumor.AltDepth']=='.' and x['Tumor.AltFrac']!='.':
                         x['Tumor.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
+                #if x['Tumor.Zyg']=='.;.'
             else:
                 x['Normal.ID']=c.sample
                 x['Normal.Depth']=f"{c.data.get('DP','.')}"
@@ -161,17 +162,17 @@ class VEPannotation(object):
 
     def gnomAD(self,CSQ):
         #gnomAD
-        self.fields['gnomAD.AF']=CSQ['gnomAD_AF']
-        self.fields['gnomAD.AFR']=CSQ['gnomAD_AFR_AF']
-        self.fields['gnomAD.AMR']=CSQ['gnomAD_AMR_AF']
-        self.fields['gnomAD.ASJ']=CSQ['gnomAD_ASJ_AF']
-        self.fields['gnomAD.EAS']=CSQ['gnomAD_EAS_AF']
-        self.fields['gnomAD.FIN']=CSQ['gnomAD_FIN_AF']
-        self.fields['gnomAD.NFE']=CSQ['gnomAD_NFE_AF']
-        self.fields['gnomAD.OTH']=CSQ['gnomAD_OTH_AF']
-        self.fields['gnomAD.SAS']=CSQ['gnomAD_SAS_AF']
-        self.fields['gnomAD.MAX_AF']=CSQ['MAX_AF']
-        self.fields['gnomAD.MAX_POPS']=CSQ['MAX_AF_POPS'] #.replace('_','.')
+        self.fields['gnomAD.AF']=CSQ.get('gnomADg_AF',CSQ.get('gnomADe_AF','.'))
+        self.fields['gnomAD.AFR']=CSQ.get('gnomADg_AFR_AF',CSQ.get('gnomADe_AFR_AF','.'))
+        self.fields['gnomAD.AMR']=CSQ.get('gnomADg_AMR_AF',CSQ.get('gnomADe_AMR_AF','.'))
+        self.fields['gnomAD.ASJ']=CSQ.get('gnomADg_ASJ_AF',CSQ.get('gnomADe_ASJ_AF','.'))
+        self.fields['gnomAD.EAS']=CSQ.get('gnomADg_EAS_AF',CSQ.get('gnomADe_EAS_AF','.'))
+        self.fields['gnomAD.FIN']=CSQ.get('gnomADg_FIN_AF',CSQ.get('gnomADe_FIN_AF','.'))
+        self.fields['gnomAD.NFE']=CSQ.get('gnomADg_NFE_AF',CSQ.get('gnomADe_NFE_AF','.'))
+        self.fields['gnomAD.OTH']=CSQ.get('gnomADg_OTH_AF',CSQ.get('gnomADe_OTH_AF','.'))
+        self.fields['gnomAD.SAS']=CSQ.get('gnomADg_SAS_AF',CSQ.get('gnomADe_SAS_AF','.'))
+        self.fields['gnomAD.MAX.AF']=CSQ.get('MAX_AF','.')
+        self.fields['gnomAD.MAX.POPS']=CSQ.get('MAX_AF_POPS','.')
 
     def clinvar(self,CSQ):
         #ClinVar
@@ -182,10 +183,22 @@ class VEPannotation(object):
 
     def loftee(self,CSQ):
         #LOFTEE
-        self.fields['LOFTEE.lof']=CSQ['LoF']
-        self.fields['LOFTEE.filter']=CSQ['LoF_filter']
-        self.fields['LOFTEE.flags']=CSQ['LoF_flags']
-        self.fields['LOFTEE.info']=CSQ['LoF_info']
+        self.fields['LOFTEE.lof']=CSQ.get('LoF','.')
+        self.fields['LOFTEE.filter']=CSQ.get('LoF_filter','.')
+        self.fields['LOFTEE.flags']=CSQ.get('LoF_flags','.')
+        self.fields['LOFTEE.info']=CSQ.get('LoF_info','.')
+
+    def alphamissense(self,CSQ):
+        self.fields['AM.class']=CSQ.get('am_class','.')#AlphaMissense pathogenicity prediction
+        self.fields['AM.pathogenicity']=CSQ.get('am_pathogenicity','.')#AlphaMissense pathogenicity score
+        pass
+
+    def mavedb(self,CSQ):
+        ##MaveDB_nt=MaveDB HGVS (nucleotide); column from MaveDB_variants.tsv.gz
+        ##MaveDB_pro=MaveDB HGVS (protein); column from MaveDB_variants.tsv.gz
+        ##MaveDB_score=MaveDB score - see MaveDB for interpretation of scores; column from MaveDB_variants.tsv.gz
+        ##MaveDB_urn=MaveDB database identifier; column from MaveDB_variants.tsv.gz
+        pass
 
     def utrannotator(self):
         pass
@@ -239,12 +252,14 @@ def report_header(annotations,tumor_normal=False):
     if 'none' in annotations:
         return header
     elif 'everything' in annotations:
-        for F in [splice_ai,snv_predition,gnomAD,clinvar,loftee,genotype]:
+        for F in [splice_ai,snv_predition,gnomAD,loftee,clinvar,genotype]:#,gnomAD, removed temp from before clinvar, the symbols are changed. loftee, too before genotype
             header+=F(tumor_normal)
     else:
-        for x in ['splice_ai','snv_predition','gnomAD','clinvar','loftee','genotype']:
+        for x in ['splice_ai','snv_predition','gnomAD','loftee','clinvar','genotype']:#here too'gnomAD''loftee',
             if x in annotations:
                 header+=eval(f"{x}({tumor_normal})")
+    if tumor_normal:
+        header+=['LANCET','MUTECT2','STRELKA2','VARDICT','VARSCAN2']
     return header
 
 def annotation_check(annotations):
@@ -342,6 +357,10 @@ def main(argv=None):
             if 'RefCall' in record.FILTER:
                 continue
 
+            if tumor_normal:
+                for x in ['LANCET','MUTECT2','STRELKA2','VARDICT','VARSCAN2']:
+                    vep_data.fields[x]=record.INFO.get(x,['NA'])[0]
+
             for csq_i in record.INFO['ANN']:
                 csq_dict=dict(zip(csq_keys,csq_i.split('|')))
                 if csq_dict['SYMBOL']!='' and csq_dict['CANONICAL']=='YES':
@@ -350,7 +369,9 @@ def main(argv=None):
                     vep_data.snv_prediction(csq_dict)
                     vep_data.splice_ai(csq_dict)
                     vep_data.gnomAD(csq_dict)
+                    vep_data.loftee(csq_dict)
                     vep_data.clinvar(csq_dict)
+                    #Hey this should only run if the annotation is present...
                     #more checks
                     if tumor_normal:
                         vep_data.calls[0]['Tumor.ID']=tumor
@@ -379,6 +400,12 @@ def main(argv=None):
 if __name__=='__main__':
     main()
 
+#try:
+#        snakemake
+#    except NameError:
+#        main(parse_arguments())
+#    else:
+#        main(parse_snakemake())
 
 #Need to recover
 #CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO    FORMAT  PMBB1495195945216

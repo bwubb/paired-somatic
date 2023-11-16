@@ -25,7 +25,7 @@ with open(config.get('analysis',{}).get('purity_table','purity.table'),'r') as u
 
 TUMORS=PAIRS.keys()
 
-with open('sample.name','w') as name_file:
+with open(f"{config['project']['name']}.{config['resources']['targets_key']}.sample_name",'w') as name_file:
     name_file.write("TUMOR tumor\n")
     for i in TUMORS:
         name_file.write(f"{i} tumor\n")
@@ -35,12 +35,12 @@ def map_vcf(wildcards):
     V={'lancet':f'data/work/{wildcards.lib}/{wildcards.tumor}/lancet/somatic.norm.clean.vcf.gz',
     'mutect2':f'data/work/{wildcards.lib}/{wildcards.tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz',
     'strelka2':f'data/work/{wildcards.lib}/{wildcards.tumor}/strelka2/somatic.norm.clean.vcf.gz',
-    'vardict':f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',
-    'varscan2':f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz'}
+    'vardict':f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz data/work/{wildcards.lib}/{wildcards.tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz data/work/{wildcards.lib}/{wildcards.tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz',
+    'varscan2':f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz'}
     return V[wildcards.caller]
 
 def map_preprocess(wildcards):
-    return {'bam':BAMS[wildcards.sample],'bcf':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/candidates.bcf','aln':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/{wildcards.sample}.alignment-properties.json'}
+    return {'bam':BAMS[wildcards.sample],'bcf':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/pass_candidates.bcf','aln':f'data/work/{wildcards.lib}/{wildcards.tumor}/varlociraptor/{wildcards.sample}.alignment-properties.json'}
 
 def map_varlociraptor_scenario(wildcards):
     tumor=wildcards.tumor
@@ -63,11 +63,11 @@ rule local_fdr:
 
 rule collect_vep:
     input:
-        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
+        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.report.csv",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
 
 rule tmb:
     input:
-        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.json",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
+        expand("data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.tmb.json",lib=config['resources']['targets_key'],tumor=TUMORS,scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
 
 rule sites:
     input:
@@ -83,19 +83,14 @@ rule candidate_tsv:
         map_vcf
     output:
         "data/work/{lib}/{tumor}/{caller}/candidates.tsv"
-    params:
-        file="sample.name"
     shell:
         """
-        bcftools reheader -s {params.file} {input} | bcftools view -s tumor -i '(FORMAT/DP * FORMAT/AF) > 8.0' | bcftools query -i 'FILTER=\"PASS\"' -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' > {output}
+        bcftools concat -a {} | bcftools view -s tumor | bcftools query -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' | perl -lne '@row=split /\\t/; $row[6] =~ s/^(?!PASS).*/\REJECT/; print join ("\\t", @row)' > {output}
         """
-    #ALL input vcfs should be reheadered some way. There are many options.
-    #reheader is nice because you can change the names directly without messing the order.
-    #Need to write a rename file.
-    #added aproximate alt depth filter.
-    #I may need to change this and add it to clean.vcf
+#bcftools concat {input} | bcftools
 
 #add manta?
+#
 rule candidate_bcf:
     input:
         "data/work/{lib}/{tumor}/lancet/candidates.tsv",
@@ -104,13 +99,13 @@ rule candidate_bcf:
         "data/work/{lib}/{tumor}/vardict/candidates.tsv",
         "data/work/{lib}/{tumor}/varscan2/candidates.tsv"
     output:
-        "data/work/{lib}/{tumor}/varlociraptor/candidates.bcf"
+        "data/work/{lib}/{tumor}/varlociraptor/pass_candidates.bcf"
     params:
         tsv=temp("data/work/{lib}/{tumor}/varlociraptor/candidates.tsv"),
-        header="/home/bwubb/resources/Vcf_files/simplified-header-w_contig.vcf"#needs genome versioning? NEEDS all FILTER values if going to be used.
+        header="$HOME/resources/Vcf_files/headers/simplified-header-w_contig.grch38.vcf"#needs genome versioning
     shell:
         """
-        cat {input} | perl -lne '@row=split /\t/; $row[6] =~ s/^(?!PASS).*/\./; print join ("\t", @row)' | sort -u > {params.tsv}
+        cat {input} | grep PASS | sort -u > {params.tsv}
         cat {params.header} {params.tsv} | bcftools sort -O b -o {output}
         bcftools index {output}
         """
@@ -127,6 +122,9 @@ rule varlociraptor_estimate_properties:
         varlociraptor estimate alignment-properties {params.ref} --bam {input.bam} > {output}
         """
 
+#bam
+#bcf=pass_candidates.bcf
+#aln=alignment-properties.json
 rule varlociraptor_preprocess_sample:
     input:
         unpack(map_preprocess)
@@ -169,21 +167,76 @@ rule varlociraptor_local_fdr:
     output:
         "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.bcf"
     params:
-        fdr="0.05"
+        fdr=0.05
     shell:
         """
         varlociraptor filter-calls control-fdr --local {input} --events SOMATIC_TUMOR --fdr {params.fdr} > {output}
         bcftools index {output}
         """
 
+rule varlociraptor_alt_depth_filter:
+    input:
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.bcf"
+    output:
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.filter.bcf"
+    params:
+        cutoff=8.0
+    shell:
+        """
+        bcftools filter -i '(FORMAT/DP[1] * FORMAT/AF[1:0]) > {params.cutoff}' -O b -o {output} {input}
+        bcftools index {output}
+        """
+
+rule bcftools_called_sites:
+    input:
+        "data/work/{lib}/{tumor}/{caller}/candidates.tsv"
+    output:
+        "data/work/{lib}/{tumor}/{caller}/called_sites.bcf"
+    params:
+        file=temp("data/work/{lib}/{tumor}/{caller}/tmp.tsv"),
+        header="$HOME/resources/Vcf_files/headers/{caller}.contig_header.grch38.vcf"
+        #how to do code base path?
+    shell:
+        """
+        cat {input} | perl -lne '@row=split /\\t/; $row[7] = uc("{wildcards.caller}=").$row[6]; print join ("\\t", @row)' > {params.file}
+        cat {params.header} {params.file} | bcftools view -O b -o {output}
+        bcftools index {output}
+        """
+
+rule bcftools_merge_sites:
+    input:
+        lancet="data/work/{lib}/{tumor}/lancet/called_sites.bcf",
+        mutect2="data/work/{lib}/{tumor}/mutect2/called_sites.bcf",
+        strelka2="data/work/{lib}/{tumor}/strelka2/called_sites.bcf",
+        vardict="data/work/{lib}/{tumor}/vardict/called_sites.bcf",
+        varscan2="data/work/{lib}/{tumor}/varscan2/called_sites.bcf"
+    output:
+        "data/work/{lib}/{tumor}/varlociraptor/paired_somatic.bcf"
+    shell:
+        """
+        bcftools merge -m none {input} | bcftools sort -O b -o {output}
+        bcftools index {output}
+        """
+
+rule bcftools_annotate:
+    input:
+        bcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.bcf",
+        sites="data/work/{lib}/{tumor}/varlociraptor/paired_somatic.bcf"
+    output:
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.bcf"
+    shell:
+        """
+        bcftools annotate -a {input.sites} -c LANCET,MUTECT2,STRELKA2,VARDICT,VARSCAN2 -O b -o {output} {input.bcf}
+        """
+
 rule varlociraptor_vep:
     input:
-        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.bcf"
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.bcf"
     output:
-        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf.gz"
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.vcf.gz"
     params:
-        in_vcf=temp('data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vcf'),
-        out_vcf='data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf',
+        in_vcf=temp('data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vcf'),
+        out_vcf='data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.vcf',
         assembly=config['reference']['key'],
         fa=config['reference']['fasta'],
         splice_snv=config['resources']['splice_snv'],
@@ -218,21 +271,23 @@ rule varlociraptor_vep:
         --plugin SpliceAI,snv={params.splice_snv},indel={params.splice_indel} \
         --plugin gnomADc,{params.gnomAD} \
         --plugin UTRannotator,{params.utr} \
+        --plugin LoF,loftee_path:$HOME/software/loftee,human_ancestor_fa:$HOME/.vep/Plugins/loftee/human_ancestor.fa.gz \
         --custom {params.clinvar},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN
 
         bgzip {params.out_vcf}
         tabix -fp vcf {output}
         """
-        #if {{ conda env list | grep 'vep'; }} >/dev/null 2>&1; then source activate vep; fi
-        #--plugin LoF,loftee_path:{params.loftee}
+        #loftee cut again until after lab meeting
+        #--plugin LoF,loftee_path:$HOME/software/loftee,human_ancestor_fa:$HOME/.vep/Plugins/loftee/human_ancestor.fa.gz
         #move ref mut fa to output after testing is complete.
         #possibly bgzip/index output fasta file
 
+#I need to go back to old snakemake parsing for proper github pathing
 rule varlociraptor_vep_report:
     input:
-        vcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf.gz"
+        vcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.vcf.gz"
     output:
-        csv="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.report.csv"
+        csv="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.report.csv"
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -242,11 +297,11 @@ rule varlociraptor_vep_report:
 
 rule varlociraptor_estimate_mutational_burden:
     input:
-        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.vcf.gz"
+        "data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.vcf.gz"
     output:
-        bcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.bcf",
-        json="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.json"
-        #"data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.vep.tmb.svg"
+        bcf="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.bcf",
+        json="data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.tmb.json"
+        #"data/work/{lib}/{tumor}/varlociraptor/{scenario}.local-fdr.paired_somatic.vep.tmb.svg"
     params:
         size=genome_size
     shell:

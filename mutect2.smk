@@ -33,6 +33,8 @@ rule unprocessed_mutect2:
     input: expand("data/work/{lib}/{tumor}/mutect2/somatic.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 #rule three steps to create pon
 
+
+
 rule run_Mutect2:
     input:
         unpack(paired_bams)
@@ -50,7 +52,7 @@ rule run_Mutect2:
         memory='16g'
     shell:
         """
-        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2}
+        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2} --genotype-germline-sites true --genotype-pon-sites tru
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -L {params.intervals} -select-type SNP
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -L {params.intervals} -select-type INDEL
         """
@@ -72,8 +74,8 @@ rule Mutect2_GetPileupSummaries:
     output:
         pileup="{work_dir}/{tumor}/mutect2/getpileupsummaries.table"
     params:
-        allele=f"$HOME/resources/Vcf_files/gnomad.exomes.r2.1.1.sites.{config['reference']['key']}.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz",
-        #allele=config['analysis']['mutect2_common_snps'],
+        #allele=f"$HOME/resources/Vcf_files/gnomad.exomes.r2.1.1.sites.{config['reference']['key']}.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz",
+        allele=config['resources']['common_snps'],
         intervals=config['resources']['targets_intervals']
     shell:
         "gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -L {params.intervals} -O {output.pileup}"
@@ -105,30 +107,34 @@ rule Mutect2_somatic_normalized:
     input:
         "{work_dir}/{tumor}/mutect2/somatic.filtered.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz",
-        clean="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+        norm="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
         """
         bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
         tabix -f -p vcf {output.norm}
-        bcftools view -e 'ALT~\"*\"' {output.norm} | bcftools sort -O z -o {output.clean}
-        tabix -f -p vcf {output.clean}
         """
 
-#rule Mutect2_somatic_standardized:
-#    input:
-#        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
-#    output:
-#        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.std.vcf.gz"
-#    params:
-#        tumor=lambda wildcards: wildcards.tumor,
-#        normal=lambda wildcards: PAIRS[wildcards.tumor],
-#        lib=config['resources']['targets_key'],
-#        mode='mutect2'
-#    shell:
-#        """
-#        python standardize_vcf.py -i {input} -T {params.tumor} -N {params.normal} --lib {params.lib} --mode {params.mode}
-#        tabix -fp vcf {output}
-#        """
+rule Mutect2_somatic_clean:
+    input:
+        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
+    output:
+        name="{work_dir}/{tumor}/mutect2/sample.name",
+        clean="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        fai=f"{config['reference']['fasta']}.fai",
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        vcf=temp("{work_dir}/{tumor}/mutect2/temp.h.vcf.gz")
+    shell:
+        """
+        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
+        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+
+        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
+        bcftools index {params.vcf}
+
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
+        tabix -f -p vcf {output.clean}
+        """

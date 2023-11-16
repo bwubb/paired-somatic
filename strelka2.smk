@@ -100,15 +100,34 @@ rule Strelka2_somatic_normalized:
     input:
         "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz",
-        clean="{work_dir}/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
+        norm="{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz"
     params:
-        regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
     shell:
         """
         bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
         tabix -f -p vcf {output.norm}
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {output.norm} | bcftools sort -O z -o {output.clean}
+        """
+
+rule Strelka2_somatic_clean:
+    input:
+        "{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz"
+    output:
+        name="{work_dir}/{tumor}/strelka2/sample.name",
+        clean="{work_dir}/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
+    params:
+        regions=config['resources']['targets_bedgz'],
+        fai=f"{config['reference']['fasta']}.fai",
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        vcf=temp("{work_dir}/{tumor}/strelka2/temp.h.vcf.gz")
+    shell:
+        """
+        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
+        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+
+        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
+        bcftools index {params.vcf}
+
+        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """

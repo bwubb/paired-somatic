@@ -37,7 +37,14 @@ def format_row(row,ucsc=False):
             type+=['neutral']
         else:
             type+=['unknown']
-        name=f"{length}bp;{';'.join(type)};lcn.em={row['lcn.em']}"
+
+        if row["lcn.em"]=="NA":
+            A="NA"
+            B="NA"
+        else:
+            A=f"{int(row['tcn.em'])-int(row['lcn.em'])}"
+            B=row["lcn.em"]
+        name=f"{length}bp;{';'.join(type)};A{A};B{B}"
         score=f"{int(row['tcn.em'])*100}"
         strand="+"
         if row['chrom']=='23':
@@ -45,7 +52,7 @@ def format_row(row,ucsc=False):
         else:
             chrom=row['chrom']
         bed_row={'chrom':chrom,'chromStart':f"{start}",'chromEnd':f"{end}",'name':f"{name}",'score':f"{score}",'strand':strand}
-        #print(bed_row)
+        #rint(bed_row)
     except ValueError:
         return None
     return bed_row
@@ -55,7 +62,7 @@ def main(argv=None):
     #d={'chromosome':'Chr','start.pos':'Start','end.pos':'End','A':'A','B':'B'}
     for i,file in enumerate(argv['input_fp']):
         outfile=file.replace('csv','bed')
-        print(outfile)
+        #print(outfile)
         with open(file,'r') as infile,open(outfile,'w') as bed_file:
             reader=csv.DictReader(infile,delimiter=',')
             writer=csv.DictWriter(bed_file,delimiter='\t',fieldnames=bed_fields,lineterminator='\n')

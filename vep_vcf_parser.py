@@ -194,6 +194,10 @@ class VEPannotation(object):
         pass
 
     def mavedb(self,CSQ):
+        sef.fields['MaveDB.nt']=CSQ.get('MaveDB_nt','.')
+        sef.fields['MaveDB.pro']=CSQ.get('MaveDB_pro','.')
+        sef.fields['MaveDB.score']=CSQ.get('MaveDB_score','.')
+        sef.fields['MaveDB.urn']=CSQ.get('MaveDB_urn','.')
         ##MaveDB_nt=MaveDB HGVS (nucleotide); column from MaveDB_variants.tsv.gz
         ##MaveDB_pro=MaveDB HGVS (protein); column from MaveDB_variants.tsv.gz
         ##MaveDB_score=MaveDB score - see MaveDB for interpretation of scores; column from MaveDB_variants.tsv.gz
@@ -244,6 +248,12 @@ def report_header(annotations,tumor_normal=False):
     def loftee(tumor_normal=False):
         return ['LOFTEE.lof','LOFTEE.filter','LOFTEE.flags','LOFTEE.info']
 
+    def alphamissense(tumor_normal=False):
+        return ['AM.class','AM.pathogenicity']
+
+    def mavedb(tumor_normal=False):
+        return ['MaveDB.nt','MaveDB.pro','MaveDB.score','MaveDB.urn']
+
     def genotype(tumor_normal=False):
         if tumor_normal:
             return ['Tumor.Zyg','Tumor.Depth','Tumor.AltDepth','Tumor.AltFrac','Normal.Zyg','Normal.Depth','Normal.AltDepth','Normal.AltFrac']
@@ -252,10 +262,10 @@ def report_header(annotations,tumor_normal=False):
     if 'none' in annotations:
         return header
     elif 'everything' in annotations:
-        for F in [splice_ai,snv_predition,gnomAD,loftee,clinvar,genotype]:#,gnomAD, removed temp from before clinvar, the symbols are changed. loftee, too before genotype
+        for F in [splice_ai,snv_predition,gnomAD,loftee,clinvar,alphamissense,mavedb,genotype]:#,gnomAD, removed temp from before clinvar, the symbols are changed. loftee, too before genotype
             header+=F(tumor_normal)
     else:
-        for x in ['splice_ai','snv_predition','gnomAD','loftee','clinvar','genotype']:#here too'gnomAD''loftee',
+        for x in ['splice_ai','snv_predition','gnomAD','loftee','clinvar','alphamissense','mavedb','genotype']:#here too'gnomAD''loftee',
             if x in annotations:
                 header+=eval(f"{x}({tumor_normal})")
     if tumor_normal:
@@ -263,7 +273,7 @@ def report_header(annotations,tumor_normal=False):
     return header
 
 def annotation_check(annotations):
-    choices=['everything','snv_prediction','gnomAD','splice_ai','clinvar','genotype','none']
+    choices=['everything','snv_prediction','gnomAD','splice_ai','clinvar','alphamissense','mavedb','genotype','none']
     for x in annotations:
         if x not in choices:
             raise NameError
@@ -304,7 +314,7 @@ def get_args(argv):
     p.add_argument('-r','--bed_region',help='Bed file format to subset regions.')
     p.add_argument('-t','--variant_type',help='Optional value for column field.')
     p.add_argument('-m','--mode',default='cohort',help='Run mode determines how calls are reported. Single should be "single,{sample.id}. Tumor/Normal should be "tumor_normal,{tumor.id},{normal.id}"')
-    p.add_argument('annotations',nargs=argparse.REMAINDER,default='everything',choices=['everything','snv_prediction','gnomAD','splice_ai','clinvar','genotype','none'],help='annotation blocks to include')
+    p.add_argument('annotations',nargs=argparse.REMAINDER,default='everything',choices=['everything','snv_prediction','gnomAD','splice_ai','clinvar','alphamissense','mavedb','genotype','none'],help='annotation blocks to include')
     return p.parse_args(argv)
 
 def main(argv=None):

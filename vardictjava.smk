@@ -81,6 +81,7 @@ rule run_unpaired_VarDictJava:#First a more lenient -P val, not sure what
         gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {input} --output {output}
         """
 
+#the part where it makes somatic is not needed any long
 rule VarDict_filter:
     input:
         "{work_dir}/{tumor}/vardict/variants.vcf.gz"

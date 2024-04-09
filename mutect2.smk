@@ -27,15 +27,17 @@ wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}"
 
 rule filter_applied_mutect2:
-    input: expand("data/work/{lib}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+    input: expand("data/work/{targets}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule unprocessed_mutect2:
-    input: expand("data/work/{lib}/{tumor}/mutect2/somatic.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
-#rule three steps to create pon
+    input: expand("data/work/{targets}/{tumor}/mutect2/somatic.vcf.gz",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
 
+#Attempting the pon_db is a waste of time.
+#Its takes FOREVER, a lot of disk space, and then doesn't work
 
+#--genotype-germline-sites
 
-rule run_Mutect2:
+rule run_mutect2:
     input:
         unpack(paired_bams)
     output:#--bamOutput {output.bam}
@@ -52,7 +54,7 @@ rule run_Mutect2:
         memory='16g'
     shell:
         """
-        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2} --genotype-germline-sites true --genotype-pon-sites tru
+        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2} --genotype-germline-sites true --genotype-pon-sites true
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -L {params.intervals} -select-type SNP
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -L {params.intervals} -select-type INDEL
         """
@@ -60,7 +62,7 @@ rule run_Mutect2:
 #        -germline-resource af-only-gnomad.vcf \
 #        -pon panel_of_normals.vcf   \
 
-rule Mutect2_LearnReadOrientationModel:
+rule mutect2_LearnReadOrientationModel:
     input:
         "{work_dir}/{tumor}/mutect2/f1r2.tar.gz"
     output:
@@ -68,7 +70,7 @@ rule Mutect2_LearnReadOrientationModel:
     shell:
         "gatk LearnReadOrientationModel -I {input} -O {output}"
 
-rule Mutect2_GetPileupSummaries:
+rule mutect2_GetPileupSummaries:
     input:
         unpack(paired_bams)
     output:
@@ -80,7 +82,7 @@ rule Mutect2_GetPileupSummaries:
     shell:
         "gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -L {params.intervals} -O {output.pileup}"
 
-rule Mutect2_CalculateContamination:
+rule mutect2_CalculateContamination:
     input:
         pileup="{work_dir}/{tumor}/mutect2/getpileupsummaries.table"
     output:
@@ -89,7 +91,7 @@ rule Mutect2_CalculateContamination:
     shell:
         "gatk CalculateContamination -I {input.pileup} -tumor-segmentation {output.segments} -O {output.contamination}"
 
-rule Mutect2_FilterMutectCalls:
+rule mutect2_FilterMutectCalls:
     input:
         vcf="{work_dir}/{tumor}/mutect2/somatic.vcf.gz",
         stats="{work_dir}/{tumor}/mutect2/somatic.vcf.gz.stats",
@@ -103,7 +105,7 @@ rule Mutect2_FilterMutectCalls:
     shell:
         "gatk FilterMutectCalls -R {params.ref} -V {input.vcf} --tumor-segmentation {input.segments} --contamination-table {input.contamination} --ob-priors {input.model} -O {output}"
 
-rule Mutect2_somatic_normalized:
+rule mutect2_somatic_normalized:
     input:
         "{work_dir}/{tumor}/mutect2/somatic.filtered.vcf.gz"
     output:
@@ -116,7 +118,7 @@ rule Mutect2_somatic_normalized:
         tabix -f -p vcf {output.norm}
         """
 
-rule Mutect2_somatic_clean:
+rule mutect2_somatic_clean:
     input:
         "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
     output:
@@ -137,4 +139,15 @@ rule Mutect2_somatic_clean:
 
         bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
+        """
+
+rule mutect2_vlr_input:
+    input:
+        "data/work/{targets}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+    output:
+        "data/work/{targets}/{tumor}/mutect2/{tumor}.mutect2.bcf"
+    shell:
+        """
+        bcftools view -O b -o {output} {input}
+        bcftools index {output}
         """

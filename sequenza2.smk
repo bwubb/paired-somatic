@@ -30,42 +30,20 @@ wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
     chr="chr[1-2][0-9]|chr[1-9]|chrX"
 
-rule collect_sequenza:
+rule sequenza_all:
     input:
-        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_segments.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
-rule collect_hrd:
-    input:
-        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_hrd.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
-rule collect_purity:
-    input:
-        "purity.table"
-
-rule collect_ploidy:
-    input:
-        "ploidy.table"
-
-rule collect_annotsv:
-    input:
-        expand("data/work/{lib}/{tumor}/sequenza/annotsv_gene_split.report.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
-#This can be parallelized; divided into chr.seqz.gz
-#probably combined after binning. each file has same header
-#zcat sample_chr1.seqz.gz sample_chr1.seqz.gz | \
-#    gawk '{if (NR!=1 && $1 != "chromosome") {print $0}}' | bgzip > \
-#    sample.seqz.gz
-#tabix -f -s 1 -b 2 -e 2 -S 1 sample.seqz.gz
-
-#awk 'FNR==1 && NR!=1 { while (/^HRD/) getline; } 1 {print}' *hrd.txt
+        expand("data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.report.csv",targets=f"{config['resources']['targets_key']}",tumor=PAIRS.keys()),
+        expand("data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.hrd.txt",targets=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
+        "sequenza_purity.table",
+        "sequenza_ploidy.table"
 
 #Make workflow to create gc file
-
 #
-rule Sequenza_bam2seqz_byChr:
+rule sequenza_bam2seqz_byChr:
     input:
         unpack(paired_bams)
     output:
-        temp("{work_dir}/{tumor}/sequenza/seqz.{chr}.gz")
+        temp("data/work/{targets}/{tumor}/sequenza/seqz.{chr}.gz")
     params:
         ref=config['reference']['fasta'],
         gc=config['reference']['gc_wiggle'],
@@ -74,11 +52,11 @@ rule Sequenza_bam2seqz_byChr:
         "sequenza-utils bam2seqz -F {params.ref} -gc {params.gc} -n {input.normal} -t {input.tumor} -C {params.chr} | gzip > {output}"
 #CHECK IF THE FILE IS EMPTY
 
-rule Sequenza_bin_byChr:
+rule sequenza_bin_byChr:
     input:
-        "{work_dir}/{tumor}/sequenza/seqz.{chr}.gz"
+        "data/work/{targets}/{tumor}/sequenza/seqz.{chr}.gz"
     output:
-        temp("{work_dir}/{tumor}/sequenza/seqz.{chr}.small.gz")
+        temp("data/work/{targets}/{tumor}/sequenza/seqz.{chr}.small.gz")
     params:
         #50 for exome 200 for genome
         bin=50
@@ -87,25 +65,25 @@ rule Sequenza_bin_byChr:
         sequenza-utils seqz_binning -w {params.bin} -s {input} -o - | gzip > {output}
         """
 
-rule Sequenza_combine_seqz:
+rule sequenza_combine_seqz:
     input:
-        ["{{work_dir}}/{{tumor}}/sequenza/seqz.{chr}.small.gz".format(chr=chr) for chr in CHR]
+        ["data/work/{{targets}}/{{tumor}}/sequenza/seqz.{chr}.small.gz".format(chr=chr) for chr in CHR]
     output:
-        "{work_dir}/{tumor}/sequenza/seqz.small.all.gz"
+        "data/work/{targets}/{tumor}/sequenza/seqz.small.all.gz"
     shell:
         """
         zcat {input} | gawk '{{if (NR!=1 && $1 != \"chromosome\") {{print $0}}}}' | bgzip > {output}
         tabix -f -s 1 -b 2 -e 2 -S 1 {output}
         """
 
-rule Sequenza_extract:
+rule sequenza_extract:
     input:
-        "{work_dir}/{tumor}/sequenza/seqz.small.all.gz"
+        "data/work/{targets}/{tumor}/sequenza/seqz.small.all.gz"
     output:
-        "{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt",
-        "{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}_confints_CP.txt",
+        "data/work/{targets}/{tumor}/sequenza/{tumor}_segments.txt"
     params:
-        outdir="{work_dir}/{tumor}/sequenza"
+        outdir="data/work/{targets}/{tumor}/sequenza"
     threads:
         4
     shell:
@@ -113,22 +91,21 @@ rule Sequenza_extract:
         Rscript sequenza-snakemake.R --id {wildcards.tumor} --input {input} --outdir {params.outdir} --threads {threads}
         """
 
-rule Sequenza_2bed:
+rule sequenza_2bed:
     input:
-        "{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}_segments.txt"
     output:
-        "{work_dir}/{tumor}/sequenza/{tumor}_segments.bed"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}_segments.bed"
     shell:
         """
-        python sequenza2bed.py {input}
+        python cnv_to_bed.py -c sequenza {input}
         """
-        #change it to write to stdout if output arg isnt given?
 
-rule Sequenza_AnnotSV:
+rule sequenza_AnnotSV:
     input:
-        "{work_dir}/{tumor}/sequenza/{tumor}_segments.bed"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}_segments.bed"
     output:
-        "{work_dir}/{tumor}/sequenza/annotsv.gene_split.tsv"
+        "data/work/{targets}}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.tsv"
     params:
         build=config['reference']['key']
     shell:
@@ -136,33 +113,34 @@ rule Sequenza_AnnotSV:
         AnnotSV -SVinputFile {input} -annotationMode split -genomeBuild {params.build} -tx ENSEMBL -outputFile {output}
         """
 
-rule Sequenza_AnnotSV_parser:
+rule sequenza_AnnotSV_parser:
     input:
-        "{work_dir}/{tumor}/sequenza/annotsv.gene_split.tsv"
+        "data/work/{targets}}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.tsv"
     output:
-        "{work_dir}/{tumor}/sequenza/annotsv_gene_split.report.csv"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.report.csv"
     shell:
         """
         python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.tumor}
         """
 
-rule Sequenza_hrd:
+rule sequenza_HRDex:
     input:
-        segments="{work_dir}/{tumor}/sequenza/{tumor}_segments.txt"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}_segments.bed"
     output:
-        "{work_dir}/{tumor}/sequenza/{tumor}_hrd.txt"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.hrd.txt"
     params:
-        build=config['reference']['key'].lower()
+        tumor="{tumor}",
+        build="grch38"
     shell:
         """
-        Rscript $HOME/software/HRDex/R/run_HRDex.R -i {input} -o {output} --tumor {wildcards.tumor} --build {params.build}
+        Rscript runHRDex.R -i {input} -o {output} --build {params.build} --tumor {params.tumor}
         """
 
-rule purity_table:
+rule sequenza_purity_table:
     input:
-        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_confints_CP.txt",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{targets}/{tumor}/sequenza/{tumor}_confints_CP.txt",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
     output:
-        "purity.table"
+        "sequenza_purity.table"
     run:
         with open(output[0],'w') as outfile:
             for f in input:
@@ -174,11 +152,11 @@ rule purity_table:
                     cellularity=line.rstrip().split('\t')[0]
                 outfile.write(f'{sampleid}\t{cellularity}\n')
 
-rule ploidy_table:
+rule sequenza_ploidy_table:
     input:
-        expand("data/work/{lib}/{tumor}/sequenza/{tumor}_confints_CP.txt",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{targets}/{tumor}/sequenza/{tumor}_confints_CP.txt",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
     output:
-        "ploidy.table"
+        "sequenza_ploidy.table"
     run:
         with open(output[0],'w') as outfile:
             for f in input:

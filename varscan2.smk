@@ -1,7 +1,7 @@
 import os
 import csv
 
-include:"./sequenza2.smk"
+#include:"./sequenza2.smk"
 
 ### INIT ###
 
@@ -30,10 +30,6 @@ wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
     results_dir=f"data/final/{config['project']['name']}"
 
-rule filter_applied_varscan2_somatic:
-    input:
-        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
-
 rule filter_applied_varscan2:
     input:
         expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
@@ -54,7 +50,7 @@ rule pair_mpileup:
 rule run_VarScan2:#OR return to mpileup.gz and zcat into VarScan2
     input:
         pileup="{work_dir}/{tumor}/varscan2/normal_tumor.mpileup",
-        CP="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt"
+        #CP="{work_dir}/{tumor}/sequenza/{tumor}_confints_CP.txt"
     output:
         indel="{work_dir}/{tumor}/varscan2/variants.indel.vcf",
         snp="{work_dir}/{tumor}/varscan2/variants.snp.vcf"
@@ -65,11 +61,15 @@ rule run_VarScan2:#OR return to mpileup.gz and zcat into VarScan2
         args='--min-coverage 3 --min-var-freq 0.08 --p-value 0.10 --somatic-p-value 0.05 --strand-filter 0',
         memory='16g'
         #old settings: args="--min-coverage 5 --p-value 0.98 --strand-filter 1"
-    run:
-        with open(input["CP"],'r') as file:
-            lines=file.read().splitlines()
-            purity=lines[3].split('\t')[0]#3 for max
-        shell(f"java -Xmx{params.memory} -jar $HOME/software/varscan/VarScan.v2.4.4.jar somatic {input.pileup} {params.prefix} --mpileup 1 --output-vcf 1 --tumor-purity {purity} {params.args}")
+    shell:
+        """
+        java -Xmx{params.memory} -jar $HOME/software/varscan/VarScan.v2.4.4.jar somatic {input.pileup} {params.prefix} --mpileup 1 --output-vcf 1 {params.args}
+        """
+    #run:
+    #    with open(input["CP"],'r') as file:
+    #        lines=file.read().splitlines()
+    #        purity=lines[3].split('\t')[0]#3 for max
+    #    shell(f"java -Xmx{params.memory} -jar $HOME/software/varscan/VarScan.v2.4.4.jar somatic {input.pileup} {params.prefix} --mpileup 1 --output-vcf 1 --tumor-purity {purity} {params.args}")
 
 rule VarScan2_processSomatic:
     input:

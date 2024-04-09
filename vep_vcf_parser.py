@@ -191,18 +191,16 @@ class VEPannotation(object):
     def alphamissense(self,CSQ):
         self.fields['AM.class']=CSQ.get('am_class','.')#AlphaMissense pathogenicity prediction
         self.fields['AM.pathogenicity']=CSQ.get('am_pathogenicity','.')#AlphaMissense pathogenicity score
-        pass
 
     def mavedb(self,CSQ):
-        sef.fields['MaveDB.nt']=CSQ.get('MaveDB_nt','.')
-        sef.fields['MaveDB.pro']=CSQ.get('MaveDB_pro','.')
-        sef.fields['MaveDB.score']=CSQ.get('MaveDB_score','.')
-        sef.fields['MaveDB.urn']=CSQ.get('MaveDB_urn','.')
+        self.fields['MaveDB.nt']=CSQ.get('MaveDB_nt','.')
+        self.fields['MaveDB.pro']=CSQ.get('MaveDB_pro','.')
+        self.fields['MaveDB.score']=CSQ.get('MaveDB_score','.')
+        self.fields['MaveDB.urn']=CSQ.get('MaveDB_urn','.')
         ##MaveDB_nt=MaveDB HGVS (nucleotide); column from MaveDB_variants.tsv.gz
         ##MaveDB_pro=MaveDB HGVS (protein); column from MaveDB_variants.tsv.gz
         ##MaveDB_score=MaveDB score - see MaveDB for interpretation of scores; column from MaveDB_variants.tsv.gz
         ##MaveDB_urn=MaveDB database identifier; column from MaveDB_variants.tsv.gz
-        pass
 
     def utrannotator(self):
         pass
@@ -381,6 +379,8 @@ def main(argv=None):
                     vep_data.gnomAD(csq_dict)
                     vep_data.loftee(csq_dict)
                     vep_data.clinvar(csq_dict)
+                    vep_data.alphamissense(csq_dict)
+                    vep_data.mavedb(csq_dict)
                     #Hey this should only run if the annotation is present...
                     #more checks
                     if tumor_normal:
@@ -397,7 +397,7 @@ def main(argv=None):
                             continue
 
                     vep_data.fill_values(header)
-                    #print(vep_data.print(header))
+                    #print(vep_data.print(['ClinVar.SIG']))
                     if gene_filter and vep_data.fields['Gene'] in gene_list:
                         vep_data.report(writer)
                     elif region_filter and vep_data.in_region(bed_regions[record.CHROM]):

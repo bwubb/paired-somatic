@@ -32,22 +32,14 @@ wildcard_constraints:
 
 rule collect_facets:
     input:
-        expand("data/work/{lib}/{tumor}/facets/{tumor}_segments.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
-rule collect_facets_hrd:
-    input:
-        expand("data/work/{lib}/{tumor}/facets/{tumor}_hrd.txt",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
-rule collect_facets_annotation:
-    input:
-        expand("data/work/{lib}/{tumor}/facets/annotsv_gene_split.report.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/facets/segmentation_cncf.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
 #input quality can be adjusted
 rule facets_pileup:
     input:
         unpack(paired_bams)
     output:
-        temp("{work_dir}/{tumor}/facets/pileup.csv.gz")
+        "{work_dir}/{tumor}/facets/pileup.csv.gz"
     params:
         #snp=gnomad_snp
         #snp=config['resources']['dbsnp']

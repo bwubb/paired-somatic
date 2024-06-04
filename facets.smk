@@ -19,6 +19,8 @@ def paired_bams(wildcards):
     normal=PAIRS[wildcards.tumor]
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
+CHR=[f'chr{c}' for c in range(1,23)]+['chrX']
+
 #gnomad is not enough
 #need dbsnp
 
@@ -34,19 +36,27 @@ rule collect_facets:
     input:
         expand("data/work/{lib}/{tumor}/facets/segmentation_cncf.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
-#input quality can be adjusted
-rule facets_pileup:
+
+rule facets_chr_pileup:
     input:
         unpack(paired_bams)
     output:
-        "{work_dir}/{tumor}/facets/pileup.csv.gz"
+        temp("{work_dir}/{tumor}/facets/pileup.{chr}.csv.gz")
     params:
-        #snp=gnomad_snp
-        #snp=config['resources']['dbsnp']
-        snp="$HOME/resources/Vcf_files/dbsnp156.GCF_000001405.40.GRCh38.contig.sort.vcf.gz"
+        snp=lambda wildcards: f"/home/bwubb/resources/Vcf_files/dbsnp156.GRCh38.snps.{wildcards.chr}.20240405.vcf.gz"
     shell:
         """
         snp-pileup -g -q15 -Q20 -P100 -r25,0 {params.snp} {output} {input.normal} {input.tumor}
+        """
+
+rule facets_merge_pileup:
+    input:
+        [f"{{work_dir}}/{{tumor}}/facets/pileup.{chr}.csv.gz" for chr in CHR]
+    output:
+        "{work_dir}/{tumor}/facets/pileup.csv.gz"
+    shell:
+        """
+        zcat {input} | awk 'NR == 1 || !/^Chromosome/' | bgzip -c > {output}
         """
 
 #Lower cval lead to higher sensitivity for small changes.
@@ -62,6 +72,7 @@ rule run_facets:
         Rscript facets-snakemake.R --id {wildcards.tumor} --input {input} --cval {params.cval}
         """
 
+
 rule facets_2bed:
     input:
         "{work_dir}/{tumor}/facets/segmentation_cncf.csv"
@@ -69,7 +80,7 @@ rule facets_2bed:
         "{work_dir}/{tumor}/facets/segmentation_cncf.bed"
     shell:
         """
-        python facets2bed.py {input}
+        python cnv_to_bed.py -c facets {input}
         """
 
 rule facets_AnnotSV:

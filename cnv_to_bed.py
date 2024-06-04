@@ -143,9 +143,57 @@ def ascat_row(row,ucsc=False):
         return None
     return bed_row
 
+#There is a simpler segments.txt file?
+def facets_row(row,ucsc=False):
+    try:
+        start=int(row['start'])-1
+        end=int(row['end'])
+        try:
+            length=end-start+1
+        except ValueError:
+            length='.'
+        type=[]
+        if any([row['lcn.em']=='0',row['lcn.em']==row['tcn.em']]):
+            type+=['loh']
+        elif all([row['lcn.em'] not in ['NA','0'],row['lcn.em']!=row['tcn.em'],row['tcn.em']!='2']):
+            type+=['imbalance']
+        else:
+            type+=['nonloh']
+        if int(row['tcn.em'])>4:
+            type+=['amp']
+        elif int(row['tcn.em'])>2 and int(row['tcn.em'])<=4:
+            type+=['gain']
+        elif int(row['tcn.em'])<2 and int(row['tcn.em'])>=1:
+            type+=['loss']
+        elif int(row['tcn.em'])<1:
+            type+=['del']
+        elif int(row['tcn.em'])==2:
+            type+=['neutral']
+        else:
+            type+=['unknown']
+
+        if row["lcn.em"]=="NA":
+            A="NA"
+            B="NA"
+        else:
+            A=f"{int(row['tcn.em'])-int(row['lcn.em'])}"
+            B=row["lcn.em"]
+        name=f"{length}bp;{';'.join(type)};A{A};B{B}"
+        score=f"{int(row['tcn.em'])*100}"
+        strand="+"
+        if row['chrom']=='23':
+            chrom='X'
+        else:
+            chrom=row['chrom']
+        bed_row={'chrom':chrom,'chromStart':f"{start}",'chromEnd':f"{end}",'name':f"{name}",'score':f"{score}",'strand':strand}
+        #rint(bed_row)
+    except ValueError:
+        return None
+    return bed_row
+
 def get_args():
     p=argparse.ArgumentParser()
-    p.add_argument('-c','--caller',choices=['sequenza','cnvkit','ascat','purecn'],default='sequenza',help='Which ASCNV caller is this data from?')
+    p.add_argument('-c','--caller',choices=['sequenza','cnvkit','ascat','purecn','facets'],default='sequenza',help='Which ASCNV caller is this data from?')
     p.add_argument('--ucsc',action='store_true',default=False,help='Format outfiles for UCSC browser')
     p.add_argument('input_fp',nargs=argparse.REMAINDER,help='One or more input files')
     argv=p.parse_args()
@@ -172,6 +220,8 @@ def main(argv=None):
                 run_row=ascat_row
             elif argv['caller']=='purecn':
                 run_row=purecn_row
+            elif argv['caller']=='facets':
+                run_row=facets_row
             else:
                 raise ValueError(f"Unsupported caller: {argv['caller']}")
             for row in reader:

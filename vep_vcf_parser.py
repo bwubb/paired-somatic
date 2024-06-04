@@ -99,7 +99,10 @@ class VEPannotation(object):
                 x['Tumor.Depth']=f"{c.data.get('DP','.')}"
                 x['Tumor.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
                 x['Tumor.AltDepth']=f"{c.data.get('AD','.')}"
-                x['Tumor.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
+                if type(c.data.get('AF',['.']))==list:#some callers have AF as a float rather than list of floats
+                    x['Tumor.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
+                else:
+                    x['Tumor.AltFrac']=f"{c.data['AF']:.3f}"
                 #VLR does not like to give AD/AF. This is an unchecked estimation.
                 if x['Tumor.AltDepth']=='.' and x['Tumor.AltFrac']!='.':
                         x['Tumor.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
@@ -109,7 +112,10 @@ class VEPannotation(object):
                 x['Normal.Depth']=f"{c.data.get('DP','.')}"
                 x['Normal.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
                 x['Normal.AltDepth']=f"{c.data.get('AD','.')}"
-                x['Normal.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
+                if type(c.data.get('AF',['.']))==list:
+                    x['Normal.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
+                else:
+                    x['Normal.AltFrac']=f"{c.data['AF']:.3f}"
                 if x['Normal.AltDepth']=='.' and x['Normal.AltFrac']!='.':
                         x['Normal.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
         return [x]
@@ -171,8 +177,8 @@ class VEPannotation(object):
         self.fields['gnomAD.NFE']=CSQ.get('gnomADg_NFE_AF',CSQ.get('gnomADe_NFE_AF','.'))
         self.fields['gnomAD.OTH']=CSQ.get('gnomADg_OTH_AF',CSQ.get('gnomADe_OTH_AF','.'))
         self.fields['gnomAD.SAS']=CSQ.get('gnomADg_SAS_AF',CSQ.get('gnomADe_SAS_AF','.'))
-        self.fields['gnomAD.MAX.AF']=CSQ.get('MAX_AF','.')
-        self.fields['gnomAD.MAX.POPS']=CSQ.get('MAX_AF_POPS','.')
+        self.fields['gnomAD.MAX_AF']=CSQ.get('MAX_AF','.')
+        self.fields['gnomAD.MAX_POPS']=CSQ.get('MAX_AF_POPS','.')
 
     def clinvar(self,CSQ):
         #ClinVar
@@ -214,12 +220,12 @@ class VEPannotation(object):
         return ','.join([self.fields[h] for h in header])
 
     def report(self,writer):
-        #need other report if 'none' is used.
-        for o in self.calls:
-            #if o['Sample.Zyg']!='HOM_REF':
-            #    print(o['Sample.Zyg'])
-            writer.writerow({**self.fields,**o})
+        if len(self.calls)>0:
+            for o in self.calls:
+                writer.writerow({**self.fields,**o})
                 #reverse dict order had incorrect fields.
+        else:
+            writer.writerow({**self.fields})
 
 def report_header(annotations,tumor_normal=False):
     if tumor_normal:
@@ -311,7 +317,7 @@ def get_args(argv):
     p.add_argument('-g','--gene_list',help='Optional list of genes to include only.')
     p.add_argument('-r','--bed_region',help='Bed file format to subset regions.')
     p.add_argument('-t','--variant_type',help='Optional value for column field.')
-    p.add_argument('-m','--mode',default='cohort',help='Run mode determines how calls are reported. Single should be "single,{sample.id}. Tumor/Normal should be "tumor_normal,{tumor.id},{normal.id}"')
+    p.add_argument('-m','--mode',default='cohort',help='Run mode determines how calls are reported. Single should be "single,{sample.id}. Tumor/Normal should be "tumor_normal,{tumor.id},{normal.id}" OR use "no_sample"')
     p.add_argument('annotations',nargs=argparse.REMAINDER,default='everything',choices=['everything','snv_prediction','gnomAD','splice_ai','clinvar','alphamissense','mavedb','genotype','none'],help='annotation blocks to include')
     return p.parse_args(argv)
 
@@ -344,6 +350,9 @@ def main(argv=None):
     #Need to clean up this main()
     #default everything is not working properly
     header=report_header(args.annotations,tumor_normal)
+    if args.mode=='no_sample':
+        for x in ['Sample.ID','Sample.Zyg','Sample.Depth','Sample.AltDepth','Sample.AltFrac']:
+            header.remove(x)
     #test data
     #VcfReader=vcfpy.Reader.from_path('data/vcf/FLCN/PMBB-Release-2020-2.0_genetic_exome_FLCN_NF.norm.vep.vcf.gz')
     VcfReader=vcfpy.Reader.from_path(f'{args.input_vcf}')

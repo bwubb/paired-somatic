@@ -35,8 +35,10 @@ def map_vcf(wildcards):
     V={'lancet':f'data/work/{wildcards.lib}/{wildcards.tumor}/lancet/somatic.norm.clean.vcf.gz',
     'mutect2':f'data/work/{wildcards.lib}/{wildcards.tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz',
     'strelka2':f'data/work/{wildcards.lib}/{wildcards.tumor}/strelka2/somatic.norm.clean.vcf.gz',
-    'vardict':[f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz'],
-    'varscan2':[f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz']}
+    'vardict':f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',
+    'varscan2':f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz'}
+    #'vardict':[f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz'],
+    #'varscan2':[f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz']}
     return V[wildcards.caller]
 
 def map_preprocess(wildcards):
@@ -340,20 +342,21 @@ rule varlociraptor_somatic_vep:
         --fasta {params.fa} \
         --vcf_info_field ANN \
         --plugin NMD \
-        --plugin ProteinSeqs,{params.ref_fa},{params.mut_fa} \
         --plugin Downstream \
         --plugin REVEL,{params.revel} \
         --plugin SpliceAI,snv={params.splice_snv},indel={params.splice_indel} \
         --plugin gnomADc,{params.gnomAD} \
         --plugin UTRannotator,{params.utr} \
-        --plugin LoF,loftee_path:$HOME/software/loftee,human_ancestor_fa:$HOME/.vep/Plugins/loftee/human_ancestor.fa.gz \
-        --custom {params.clinvar},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN
+        --custom {params.clinvar},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN \
+        --plugin AlphaMissense,file=/home/bwubb/.vep/alphamissense/AlphaMissense_GRCh38.tsv.gz \
+        --plugin MaveDB,file=/home/bwubb/.vep/mavedb/MaveDB_variants.tsv.gz
 
         bgzip {params.out_vcf}
         tabix -fp vcf {output}
         """
         #loftee cut again until after lab meeting
         #--plugin LoF,loftee_path:$HOME/software/loftee,human_ancestor_fa:$HOME/.vep/Plugins/loftee/human_ancestor.fa.gz
+        #--plugin ProteinSeqs,{params.ref_fa},{params.mut_fa} \
         #move ref mut fa to output after testing is complete.
         #possibly bgzip/index output fasta file
 

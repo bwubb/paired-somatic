@@ -35,10 +35,10 @@ def map_vcf(wildcards):
     V={'lancet':f'data/work/{wildcards.lib}/{wildcards.tumor}/lancet/somatic.norm.clean.vcf.gz',
     'mutect2':f'data/work/{wildcards.lib}/{wildcards.tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz',
     'strelka2':f'data/work/{wildcards.lib}/{wildcards.tumor}/strelka2/somatic.norm.clean.vcf.gz',
-    'vardict':f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',
-    'varscan2':f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz'}
-    #'vardict':[f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz'],
-    #'varscan2':[f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz']}
+    'vardict':[f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/loh.twice_filtered.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz'],
+    'varscan2':[f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/loh.fpfilter.norm.clean.vcf.gz',f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz']}
+    #'vardict':f'data/work/{wildcards.lib}/{wildcards.tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz',
+    #'varscan2':f'data/work/{wildcards.lib}/{wildcards.tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz'}
     return V[wildcards.caller]
 
 def map_preprocess(wildcards):
@@ -87,6 +87,25 @@ wildcard_constraints:
     scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0]
 
 
+#Since they are all going here I can make a rule to make the name file
+rule mutect2_vlr_input:
+    input:
+        "data/work/{targets}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+    output:
+        "data/work/{targets}/{tumor}/varlociraptor/{tumor}.mutect2.bcf"
+    params:
+        name="data/work/{targets}/{tumor}/varlociraptor/sample.name"
+    shell:
+        """
+        if [ ! -e {params.name} ]; then echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" > {output.name}; fi
+
+        bcftools reheader -s {params.name} {input} |
+        perl -F'\\t' -lane 'if (/^#CHROM/) {print "##INFO=<ID=CATEGORY,Number=.,Type=String,Description=\\"Call type for the variant.\\">\\n$_";} elsif (!/^#/) {$F[7]="CATEGORY=SOMATIC;$F[7]"; print join("\\t",@F);} else {print}' |
+        bcftools view -O b -o {output}
+
+        bcftools index {output}
+        """
+
 rule candidate_tsv:
     input:
         map_vcf
@@ -96,6 +115,7 @@ rule candidate_tsv:
         """
         bcftools concat -a {input} | bcftools view -s tumor | bcftools query -f '%CHROM\t%POS\t.\t%REF\t%ALT\t.\t%FILTER\t.\n' | perl -lne '@row=split /\\t/; $row[6] =~ s/^(?!PASS).*/\REJECT/; print join ("\\t", @row)' > {output}
         """
+        #ADD TAG:CATEGORY in the query
 #bcftools concat {input} | bcftools
 
 #add manta?
@@ -329,7 +349,12 @@ rule varlociraptor_somatic_vep:
         """
         bcftools view -O v -o {params.in_vcf} {input}
 
-        vep -i {params.in_vcf} -o {params.out_vcf} \
+        singularity run -H $PWD:/home \
+        --bind /home/bwubb/resources:/opt/vep/resources \
+        --bind /home/bwubb/.vep:/opt/vep/.vep \
+        /appl/containers/vep112.sif vep \
+        --dir /opt/vep/.vep \
+        -i {params.in_vcf} -o {params.out_vcf} \
         --force_overwrite \
         --offline \
         --cache \
@@ -423,7 +448,12 @@ rule varlociraptor_germline_vep:
         """
         bcftools view -O v -o {params.in_vcf} {input}
 
-        vep -i {params.in_vcf} -o {params.out_vcf} \
+        singularity run -H $PWD:/home \
+        --bind /home/bwubb/resources:/opt/vep/resources \
+        --bind /home/bwubb/.vep:/opt/vep/.vep \
+        /appl/containers/vep112.sif vep \
+        --dir /opt/vep/.vep \
+        -i {params.in_vcf} -o {params.out_vcf} \
         --force_overwrite \
         --offline \
         --cache \

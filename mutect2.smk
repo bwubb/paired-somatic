@@ -118,11 +118,23 @@ rule mutect2_somatic_normalized:
         tabix -f -p vcf {output.norm}
         """
 
+rule mutect2_sample_name:
+    output:
+        "{work_dir}/{tumor}/mutect2/sample.name"
+    params:
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+    shell:
+        """
+        echo -e "TUMOR\\t{wildcards.tumor}\\nNORMAL\\t{params.normal}" > {output}
+        echo -e "tumor\\t{wildcards.tumor}\\nnormal\\t{params.normal}" >> {output}
+        """
+
 rule mutect2_somatic_clean:
     input:
+        name="{work_dir}/{tumor}/mutect2/sample.name",
         "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
     output:
-        name="{work_dir}/{tumor}/mutect2/sample.name",
+
         clean="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
@@ -131,23 +143,23 @@ rule mutect2_somatic_clean:
         vcf=temp("{work_dir}/{tumor}/mutect2/temp.h.vcf.gz")
     shell:
         """
-        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
-        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+        echo -e "TUMOR\\t{wildcards.tumor}\\nNORMAL\\t{params.normal}" > {output.name}
+        echo -e "tumor\\t{wildcards.tumor}\\nnormal\\t{params.normal}" >> {output.name}
 
         bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
         bcftools index {params.vcf}
 
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
         """
 
-rule mutect2_vlr_input:
+rule mutect2_somatic_final:
     input:
-        "data/work/{targets}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+        "data/work/{config['resources']['targets_key']}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
     output:
-        "data/work/{targets}/{tumor}/mutect2/{tumor}.mutect2.bcf"
+        "data/final/{tumor}/{tumor}.mutect2.somatic.vcf.gz"
     shell:
         """
-        bcftools view -O b -o {output} {input}
-        bcftools index {output}
+        bcftools view -Oz -o {output} {input}
+        tabix -fp vcf {output}
         """

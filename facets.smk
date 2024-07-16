@@ -34,7 +34,7 @@ wildcard_constraints:
 
 rule collect_facets:
     input:
-        expand("data/work/{lib}/{tumor}/facets/segmentation_cncf.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/facets/annotsv_gene_split.report.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
 
 
 rule facets_chr_pileup:

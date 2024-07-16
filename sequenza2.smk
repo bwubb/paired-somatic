@@ -105,7 +105,7 @@ rule sequenza_AnnotSV:
     input:
         "data/work/{targets}/{tumor}/sequenza/{tumor}_segments.bed"
     output:
-        "data/work/{targets}}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.tsv"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.tsv"
     params:
         build=config['reference']['key']
     shell:

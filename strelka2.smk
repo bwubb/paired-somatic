@@ -122,12 +122,23 @@ rule Strelka2_somatic_clean:
         vcf=temp("{work_dir}/{tumor}/strelka2/temp.h.vcf.gz")
     shell:
         """
-        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
-        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+        echo -e "TUMOR\\t{wildcards.tumor}\\nNORMAL\\t{params.normal}" > {output.name}
+        echo -e "tumor\\t{wildcards.tumor}\\nnormal\\t{params.normal}" >> {output.name}
 
         bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
         bcftools index {params.vcf}
 
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
         tabix -f -p vcf {output.clean}
+        """
+
+rule strelka2_somatic_final:
+    input:
+        "data/work/{config['resources']['targets_key']}/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
+    output:
+        "data/final/{tumor}/{tumor}.strelka2.somatic.vcf.gz"
+    shell:
+        """
+        bcftools view -Oz -o {output} {input}
+        tabix -fp vcf {output}
         """

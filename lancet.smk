@@ -24,7 +24,7 @@ def paired_bams(wildcards):
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
 ### SNAKEMAKE ###
-localrules: collect_lancet
+localrules: lancet_sample_name
 
 wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}"
@@ -67,11 +67,22 @@ rule lancet_somatic_normalized:
         tabix -fp vcf {output.norm}
         """
 
+rule vardict_sample_name:
+    output:
+        "{work_dir}/{tumor}/lancet/sample.name"
+    params:
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+    shell:
+        """
+        echo -e "TUMOR\\t{wildcards.tumor}\\nNORMAL\\t{params.normal}" > {output}
+        echo -e "tumor\\t{wildcards.tumor}\\nnormal\\t{params.normal}" >> {output}
+        """
+
 rule lancet_somatic_clean:
     input:
-        "{work_dir}/{tumor}/lancet/somatic.norm.vcf.gz"
-    output:
         name="{work_dir}/{tumor}/lancet/sample.name",
+        vcf="{work_dir}/{tumor}/lancet/somatic.norm.vcf.gz"
+    output:
         clean="{work_dir}/{tumor}/lancet/somatic.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
@@ -80,12 +91,16 @@ rule lancet_somatic_clean:
         vcf=temp("{work_dir}/{tumor}/lancet/temp.h.vcf.gz")
     shell:
         """
-        echo -e "TUMOR\\ttumor\\nNORMAL\\tnormal" > {output.name}
-        echo -e "{wildcards.tumor}\\ttumor\\n{params.normal}\\tnormal" >> {output.name}
+        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} -W tbi {input.vcf}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W tbi -Oz -o {output.clean}
+        """
 
-        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
-        bcftools index {params.vcf}
-
-        bcftools view -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
-        tabix -f -p vcf {output.clean}
+rule lancet_somatic_final:
+    input:
+        "data/work/{config['resources']['targets_key']}/{tumor}/lancet/somatic.norm.clean.vcf.gz"
+    output:
+        "data/final/{tumor}/{tumor}.lancet.somatic.vcf.gz"
+    shell:
+        """
+        bcftools view -W tbi -Oz -o {output} {input}
         """

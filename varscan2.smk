@@ -103,8 +103,13 @@ rule varscan2_processSomatic:
         bcftools view -Ov -o {output.somatic_snp} {params.somatic_snp}
         bcftools view -Ov -o {output.somatic_indel} {params.somatic_indel}
 
-        bcftools concat {params.germline_snp} {params.loh_snp} | bcftools sort -Ov -o {output.germline_snp}
-        bcftools concat {params.germline_indel} {params.loh_indel} | bcftools sort -Ov -o {output.germline_indel}
+        bcftools view -Oz -W=tbi {params.germline_snp} > {params.germline_snp}.gz
+        bcftools view -Oz -W=tbi {params.loh_snp} > {params.loh_snp}.gz
+        bcftools concat -a {params.germline_snp}.gz {params.loh_snp}.gz | bcftools sort -Ov -o {output.germline_snp}
+
+        bcftools view -Oz -W=tbi {params.germline_indel} > {params.germline_indel}.gz
+        bcftools view -Oz -W=tbi {params.loh_indel} > {params.loh_indel}.gz
+        bcftools concat -a {params.germline_indel} {params.loh_indel} | bcftools sort -Ov -o {output.germline_indel}
         """
         #RENAME
 
@@ -210,8 +215,7 @@ rule varscan2_somatic_normalized:
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
-        tabix -f -p vcf {output.norm}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -W=tbi -Oz -o {output.norm}
         """
 
 rule varscan2_sample_name:
@@ -238,8 +242,10 @@ rule varscan2_somatic_clean:
         vcf=temp("{work_dir}/{tumor}/varscan2/temp.h.vcf.gz")
     shell:
         """
-        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} -W tbi {input.vcf}
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W tbi -Oz -o {output.clean}
+        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
+        bcftools index {params.vcf}
+
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule bamreadcount_germline_regions:
@@ -284,10 +290,10 @@ rule varscan2_germline_fpfilter:
         """
         java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {params.snp_out}
         bgzip {params.snp_out}
-        tabix -f -p vcf {output.snps}
+        tabix -fp vcf {output.snps}
         java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {params.indel_out}
         bgzip {params.indel_out}
-        tabix -f -p vcf {output.indels}
+        tabix -fp vcf {output.indels}
         """
 
 rule varscan2_germline_merge:
@@ -298,8 +304,7 @@ rule varscan2_germline_merge:
         "{work_dir}/{tumor}/varscan2/germline.fpfilter.vcf.gz"
     shell:
         """
-        bcftools concat -a {input} | bcftools sort -O z -o {output}
-        tabix -f -p vcf {output}
+        bcftools concat -a {input} | bcftools sort -W=tbi -Oz -o {output}
         """
 
 rule varscan2_germline_normalized:
@@ -312,8 +317,7 @@ rule varscan2_germline_normalized:
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output}
-        tabix -f -p vcf {output}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -W=tbi -Oz -o {output}
         """
 
 rule varscan2_germline_clean:
@@ -329,8 +333,10 @@ rule varscan2_germline_clean:
         vcf=temp("{work_dir}/{tumor}/varscan2/temp.g.vcf.gz")
     shell:
         """
-        bcftools reheader -f {params.fai} -s {input.name} -W tbi -o {params.vcf} {input.vcf}
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W tbi -Oz -o {output.clean}
+        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
+        bcftools index {params.vcf}
+
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule varscan2_germline_final:
@@ -340,8 +346,7 @@ rule varscan2_germline_final:
         "data/final/{tumor}/{tumor}.varscan2.germline.vcf.gz"
     shell:
         """
-        bcftools view -Oz -o {output} {input}
-        tabix -fp vcf {output}
+        bcftools view -W=tbi -Oz -o {output} {input}
         """
 
 #I dont think I like doing loh and germline so separate.

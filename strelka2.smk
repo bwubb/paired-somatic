@@ -84,7 +84,7 @@ rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont 
         "{input} -m local -j {threads}"
         #can add -m, --max-mem <float>[kMG]    maximum memory to use [768M] for sort
 
-rule Strelka2_concat:
+rule strelka2_concat:
     input:
         snvs="{work_dir}/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",
         indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
@@ -92,11 +92,10 @@ rule Strelka2_concat:
         "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
     shell:
         """
-        bcftools concat -a {input.snvs} {input.indels} | bcftools sort -O z -o {output}
-        tabix -f -p vcf {output}
+        bcftools concat -a {input.snvs} {input.indels} | bcftools sort -W=tbi -Oz -o {output}
         """
 
-rule Strelka2_somatic_normalized:
+rule strelka2_somatic_normalized:
     input:
         "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
     output:
@@ -105,15 +104,25 @@ rule Strelka2_somatic_normalized:
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
-        tabix -f -p vcf {output.norm}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -W=tbi -Oz -o {output.norm}
         """
 
-rule Strelka2_somatic_clean:
-    input:
-        "{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz"
+rule strelka2_sample_name:
     output:
+        "{work_dir}/{tumor}/strelka2/sample.name"
+    params:
+        normal=lambda wildcards: PAIRS[wildcards.tumor]
+    shell:
+        """
+        echo -e "TUMOR\\t{wildcards.tumor}\\nNORMAL\\t{params.normal}" > {output}
+        echo -e "tumor\\t{wildcards.tumor}\\nnormal\\t{params.normal}" >> {output}
+        """
+
+rule strelka2_somatic_clean:
+    input:
         name="{work_dir}/{tumor}/strelka2/sample.name",
+        vcf="{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz"
+    output:
         clean="{work_dir}/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
@@ -122,14 +131,10 @@ rule Strelka2_somatic_clean:
         vcf=temp("{work_dir}/{tumor}/strelka2/temp.h.vcf.gz")
     shell:
         """
-        echo -e "TUMOR\\t{wildcards.tumor}\\nNORMAL\\t{params.normal}" > {output.name}
-        echo -e "tumor\\t{wildcards.tumor}\\nnormal\\t{params.normal}" >> {output.name}
-
-        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
+        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
         bcftools index {params.vcf}
 
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
-        tabix -f -p vcf {output.clean}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule strelka2_somatic_final:
@@ -139,6 +144,5 @@ rule strelka2_somatic_final:
         "data/final/{tumor}/{tumor}.strelka2.somatic.vcf.gz"
     shell:
         """
-        bcftools view -Oz -o {output} {input}
-        tabix -fp vcf {output}
+        bcftools view -W=tbi -Oz -o {output} {input}
         """

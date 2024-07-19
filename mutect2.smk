@@ -68,7 +68,9 @@ rule mutect2_LearnReadOrientationModel:
     output:
         "{work_dir}/{tumor}/mutect2/read-orientation-model.tar.gz"
     shell:
-        "gatk LearnReadOrientationModel -I {input} -O {output}"
+        """
+        gatk LearnReadOrientationModel -I {input} -O {output}
+        """
 
 rule mutect2_GetPileupSummaries:
     input:
@@ -76,11 +78,12 @@ rule mutect2_GetPileupSummaries:
     output:
         pileup="{work_dir}/{tumor}/mutect2/getpileupsummaries.table"
     params:
-        #allele=f"$HOME/resources/Vcf_files/gnomad.exomes.r2.1.1.sites.{config['reference']['key']}.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz",
         allele=config['resources']['common_snps'],
         intervals=config['resources']['targets_intervals']
     shell:
-        "gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -L {params.intervals} -O {output.pileup}"
+        """
+        gatk GetPileupSummaries -I {input.tumor} -V {params.allele} -L {params.intervals} -O {output.pileup}
+        """
 
 rule mutect2_CalculateContamination:
     input:
@@ -89,7 +92,9 @@ rule mutect2_CalculateContamination:
         contamination="{work_dir}/{tumor}/mutect2/calculatecontamination.table",
         segments="{work_dir}/{tumor}/mutect2/segments.table"
     shell:
-        "gatk CalculateContamination -I {input.pileup} -tumor-segmentation {output.segments} -O {output.contamination}"
+        """
+        gatk CalculateContamination -I {input.pileup} -tumor-segmentation {output.segments} -O {output.contamination}
+        """
 
 rule mutect2_FilterMutectCalls:
     input:
@@ -103,7 +108,9 @@ rule mutect2_FilterMutectCalls:
     params:
         ref=config['reference']['fasta']
     shell:
-        "gatk FilterMutectCalls -R {params.ref} -V {input.vcf} --tumor-segmentation {input.segments} --contamination-table {input.contamination} --ob-priors {input.model} -O {output}"
+        """
+        gatk FilterMutectCalls -R {params.ref} -V {input.vcf} --tumor-segmentation {input.segments} --contamination-table {input.contamination} --ob-priors {input.model} -O {output}
+        """
 
 rule mutect2_somatic_normalized:
     input:
@@ -114,8 +121,7 @@ rule mutect2_somatic_normalized:
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
-        tabix -f -p vcf {output.norm}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -W=tbi -Oz -o {output.norm}
         """
 
 rule mutect2_sample_name:
@@ -132,9 +138,8 @@ rule mutect2_sample_name:
 rule mutect2_somatic_clean:
     input:
         name="{work_dir}/{tumor}/mutect2/sample.name",
-        "{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
+        vcf="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
     output:
-
         clean="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
@@ -143,14 +148,10 @@ rule mutect2_somatic_clean:
         vcf=temp("{work_dir}/{tumor}/mutect2/temp.h.vcf.gz")
     shell:
         """
-        echo -e "TUMOR\\t{wildcards.tumor}\\nNORMAL\\t{params.normal}" > {output.name}
-        echo -e "tumor\\t{wildcards.tumor}\\nnormal\\t{params.normal}" >> {output.name}
-
-        bcftools reheader -f {params.fai} -s {output.name} -o {params.vcf} {input}
+        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
         bcftools index {params.vcf}
 
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -O z -o {output.clean}
-        tabix -f -p vcf {output.clean}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule mutect2_somatic_final:
@@ -160,6 +161,5 @@ rule mutect2_somatic_final:
         "data/final/{tumor}/{tumor}.mutect2.somatic.vcf.gz"
     shell:
         """
-        bcftools view -Oz -o {output} {input}
-        tabix -fp vcf {output}
+        bcftools view -W=tbi -Oz -o {output} {input}
         """

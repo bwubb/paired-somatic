@@ -49,8 +49,7 @@ rule run_lancet:
         4
     shell:
         """
-        lancet --tumor {input.tumor} --normal {input.normal} --ref {params.ref} --bed {params.bed} --num-threads {threads} | bcftools view -O z -o {output}
-        tabix -fp vcf {output}
+        lancet --tumor {input.tumor} --normal {input.normal} --ref {params.ref} --bed {params.bed} --num-threads {threads} | bcftools view -W=tbi -Oz -o {output}
         """
         ##Reheader?
 
@@ -63,11 +62,10 @@ rule lancet_somatic_normalized:
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -O z -o {output.norm}
-        tabix -fp vcf {output.norm}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -W=tbi -Oz -o {output.norm}
         """
 
-rule vardict_sample_name:
+rule lancet_sample_name:
     output:
         "{work_dir}/{tumor}/lancet/sample.name"
     params:
@@ -91,8 +89,10 @@ rule lancet_somatic_clean:
         vcf=temp("{work_dir}/{tumor}/lancet/temp.h.vcf.gz")
     shell:
         """
-        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} -W tbi {input.vcf}
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W tbi -Oz -o {output.clean}
+        bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
+        bcftools index {params.vcf}
+
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule lancet_somatic_final:
@@ -102,5 +102,5 @@ rule lancet_somatic_final:
         "data/final/{tumor}/{tumor}.lancet.somatic.vcf.gz"
     shell:
         """
-        bcftools view -W tbi -Oz -o {output} {input}
+        bcftools view -W=tbi -Oz -o {output} {input}
         """

@@ -33,8 +33,8 @@ wildcard_constraints:
 
 rule filter_applied_varscan2:
     input:
-        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{lib}/{tumor}/varscan2/somatic.fpfilter.fix.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
+        expand("data/work/{lib}/{tumor}/varscan2/germline.fpfilter.fix.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
 
 rule pair_mpileup:
     input:
@@ -103,13 +103,13 @@ rule varscan2_processSomatic:
         bcftools view -Ov -o {output.somatic_snp} {params.somatic_snp}
         bcftools view -Ov -o {output.somatic_indel} {params.somatic_indel}
 
-        bcftools view -Oz -W=tbi {params.germline_snp} > {params.germline_snp}.gz
-        bcftools view -Oz -W=tbi {params.loh_snp} > {params.loh_snp}.gz
+        bcftools view -Oz -o {params.germline_snp}.gz -W=tbi {params.germline_snp}
+        bcftools view -Oz -o {params.loh_snp}.gz -W=tbi {params.loh_snp}
         bcftools concat -a {params.germline_snp}.gz {params.loh_snp}.gz | bcftools sort -Ov -o {output.germline_snp}
 
-        bcftools view -Oz -W=tbi {params.germline_indel} > {params.germline_indel}.gz
-        bcftools view -Oz -W=tbi {params.loh_indel} > {params.loh_indel}.gz
-        bcftools concat -a {params.germline_indel} {params.loh_indel} | bcftools sort -Ov -o {output.germline_indel}
+        bcftools view -Oz -o {params.germline_indel}.gz -W=tbi {params.germline_indel}
+        bcftools view -Oz -o {params.loh_indel}.gz -W=tbi {params.loh_indel}
+        bcftools concat -a {params.germline_indel}.gz {params.loh_indel}.gz | bcftools sort -Ov -o {output.germline_indel}
         """
         #RENAME
 
@@ -152,12 +152,12 @@ rule varscan2_somatic_fpfilter:
         snp_readcount="{work_dir}/{tumor}/varscan2/somatic.snp.readcounts",
         indel_readcount="{work_dir}/{tumor}/varscan2/somatic.indel.readcounts"
     output:
-        snp_out="{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.out",
-        indel_out="{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.out"
+        snp="{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.vcf",
+        indel="{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.vcf"
     shell:
         """
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp_out} --keep-failures
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel_out} --keep-failures
+        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp} --keep-failures
+        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel} --keep-failures
         """
         ##
         #For VarScan fpfilter (--dream-3-settings):
@@ -176,48 +176,45 @@ rule varscan2_somatic_fpfilter:
         #--max-var-mmqs = 100
         #--max-ref-mmqs = 50
 
-rule Varscan2_somatic_fix_output:
+rule varscan2_somatic_fix:
     input:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.out",
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.out"
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.vcf",
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.vcf"
     output:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.snps.vcf",
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.indels.vcf"
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.fix.vcf",
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.fix.vcf"
     script:
         'fix_varscan2_out.py'
         #revisit
 
 rule varscan2_somatic_merge:
     input:
-        snp="{work_dir}/{tumor}/varscan2/somatic.fpfilter.snps.vcf",
-        indel="{work_dir}/{tumor}/varscan2/somatic.fpfilter.indels.vcf"
+        snp="{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.fix.vcf",
+        indel="{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.fix.vcf"
     output:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.fix.vcf.gz"
     params:
-        bgzsnp="{work_dir}/{tumor}/varscan2/somatic.snps.fpfilter.vcf.gz",
-        bgzindel="{work_dir}/{tumor}/varscan2/somatic.indels.fpfilter.vcf.gz"
+        snp="{work_dir}/{tumor}/varscan2/somatic.fpfilter.snp.fix.vcf.gz",
+        indel="{work_dir}/{tumor}/varscan2/somatic.fpfilter.indel.fix.vcf.gz"
     shell:
         """
-        bgzip -c {input.snp} > {params.bgzsnp}
-        tabix -f -p vcf {params.bgzsnp}
-        bgzip -c {input.indel} > {params.bgzindel}
-        tabix -f -p vcf {params.bgzindel}
-        bcftools concat -a {params.bgzsnp} {params.bgzindel}| bcftools sort -O z -o {output}
-        tabix -f -p vcf {output}
+        bcftools view -Oz -W=tbi -o {params.snp} {input.snp}
+        bcftools view -Oz -W=tbi -o {params.indel} {input.indel}
+        bcftools concat -a {params.snp} {params.indel} | bcftools sort -Oz -W=tbi -o {output}
         """
 
 rule varscan2_somatic_normalized:
     input:
-        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/somatic.fpfilter.fix.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz"
+        norm="{work_dir}/{tumor}/varscan2/somatic.fpfilter.fix.norm.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
         """
         bcftools norm -m-both {input} | bcftools norm -f {params.ref} -W=tbi -Oz -o {output.norm}
         """
-
+#after testing, move to top of script and rename stuff with samtools
 rule varscan2_sample_name:
     output:
         "{work_dir}/{tumor}/varscan2/sample.name"
@@ -232,9 +229,9 @@ rule varscan2_sample_name:
 rule varscan2_somatic_clean:
     input:
         name="{work_dir}/{tumor}/varscan2/sample.name",
-        vcf="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz"
+        vcf="{work_dir}/{tumor}/varscan2/somatic.fpfilter.fix.norm.vcf.gz"
     output:
-        clean="{work_dir}/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz"
+        clean="{work_dir}/{tumor}/varscan2/somatic.fpfilter.fix.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
@@ -246,6 +243,16 @@ rule varscan2_somatic_clean:
         bcftools index {params.vcf}
 
         bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
+        """
+
+rule varscan2_somatic_final:
+    input:
+        "data/work/{config['resources']['targets_key']}/{tumor}/varscan2/somatic.fpfilter.fix.norm.clean.vcf.gz",
+    output:
+        "data/final/{tumor}/{tumor}.varscan2.somatic.vcf.gz"
+    shell:
+        """
+        bcftools view -W=tbi -Oz -o {output} {input}
         """
 
 rule bamreadcount_germline_regions:
@@ -281,51 +288,59 @@ rule varscan2_germline_fpfilter:
         snp_readcount="{work_dir}/{tumor}/varscan2/germline.snp.readcounts",
         indel_readcount="{work_dir}/{tumor}/varscan2/germline.indel.readcounts"
     output:
-        snps="{work_dir}/{tumor}/varscan2/germline.snps.fpfilter.vcf.gz",
-        indels="{work_dir}/{tumor}/varscan2/germline.indels.fpfilter.vcf.gz"
-    params:
-        snp_out="{work_dir}/{tumor}/varscan2/germline.snps.fpfilter.vcf",
-        indel_out="{work_dir}/{tumor}/varscan2/germline.indels.fpfilter.vcf"
+        snp="{work_dir}/{tumor}/varscan2/germline.snp.fpfilter.vcf",
+        indel="{work_dir}/{tumor}/varscan2/germline.indel.fpfilter.vcf"
     shell:
         """
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {params.snp_out}
-        bgzip {params.snp_out}
-        tabix -fp vcf {output.snps}
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {params.indel_out}
-        bgzip {params.indel_out}
-        tabix -fp vcf {output.indels}
+        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp}
+        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel}
         """
+
+rule varscan2_germline_fix:
+    input:
+        "{work_dir}/{tumor}/varscan2/germline.snp.fpfilter.vcf",
+        "{work_dir}/{tumor}/varscan2/germline.indel.fpfilter.vcf"
+    output:
+        "{work_dir}/{tumor}/varscan2/germline.snp.fpfilter.fix.vcf",
+        "{work_dir}/{tumor}/varscan2/germline.indel.fpfilter.fix.vcf"
+    script:
+        "fix_varscan2_out.py"
 
 rule varscan2_germline_merge:
     input:
-        snp_vcf="{work_dir}/{tumor}/varscan2/germline.snps.fpfilter.vcf.gz",
-        indel_vcf="{work_dir}/{tumor}/varscan2/germline.indels.fpfilter.vcf.gz"
+        snp="{work_dir}/{tumor}/varscan2/germline.snp.fpfilter.fix.vcf",
+        indel="{work_dir}/{tumor}/varscan2/germline.indel.fpfilter.fix.vcf"
     output:
-        "{work_dir}/{tumor}/varscan2/germline.fpfilter.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/germline.fpfilter.fix.vcf.gz"
+    params:
+        snp="{work_dir}/{tumor}/varscan2/germline.snp.fpfilter.fix.vcf.gz",
+        indel="{work_dir}/{tumor}/varscan2/germline.indel.fpfilter.fix.vcf.gz"
     shell:
         """
-        bcftools concat -a {input} | bcftools sort -W=tbi -Oz -o {output}
+        bcftools view -Oz -W=tbi -o {params.snp} {input.snp}
+        bcftools view -Oz -W=tbi -o {params.indel} {input.indel}
+        bcftools concat -a {params.snp} {params.indel} | bcftools sort -Oz -W=tbi -o {output}
         """
 
 rule varscan2_germline_normalized:
     input:
-        "{work_dir}/{tumor}/varscan2/germline.fpfilter.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/germline.fpfilter.fix.vcf.gz"
     output:
-        "{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.vcf.gz"
+        "{work_dir}/{tumor}/varscan2/germline.fpfilter.fix.norm.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
     shell:
         """
-        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -W=tbi -Oz -o {output}
+        bcftools norm -m-both {input} | bcftools norm -f {params.ref} -Oz -W=tbi -o {output}
         """
 
 rule varscan2_germline_clean:
     input:
         name="{work_dir}/{tumor}/varscan2/sample.name",
-        vcf="{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.vcf.gz"
+        vcf="{work_dir}/{tumor}/varscan2/germline.fpfilter.fix.norm.vcf.gz"
     output:
-        clean="{work_dir}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
+        clean="{work_dir}/{tumor}/varscan2/germline.fpfilter.fix.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
@@ -341,7 +356,7 @@ rule varscan2_germline_clean:
 
 rule varscan2_germline_final:
     input:
-        "data/work/{config['resources']['targets_key']}/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz",
+        "data/work/{config['resources']['targets_key']}/{tumor}/varscan2/germline.fpfilter.fix.norm.clean.vcf.gz",
     output:
         "data/final/{tumor}/{tumor}.varscan2.germline.vcf.gz"
     shell:

@@ -72,7 +72,6 @@ rule run_facets:
         Rscript facets-snakemake.R --id {wildcards.tumor} --input {input} --cval {params.cval}
         """
 
-
 rule facets_2bed:
     input:
         "{work_dir}/{tumor}/facets/segmentation_cncf.csv"

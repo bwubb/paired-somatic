@@ -16,5 +16,6 @@ p$add_argument('--threads',default=1,help="Number of cores")
 args<-p$parse_args()
 
 tumor<-sequenza.extract(args$input)
-CP<-sequenza.fit(tumor,mc.cores=args$threads)
-sequenza.results(sequenza.extract=tumor,cp.table=CP,sample.id=args$id,out.dir=args$outdir)
+
+CP<-sequenza.fit(tumor,mc.cores=args$threads)#female=T/F
+sequenza.results(sequenza.extract=tumor,cp.table=CP,sample.id=args$id,out.dir=args$outdir)#female=T/F

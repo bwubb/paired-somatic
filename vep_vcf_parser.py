@@ -20,6 +20,8 @@ class VEPannotation(object):
         else:
             self.calls=self.__get_calls__(vcfpy_record.calls)
         self.call_count=len(self.calls)
+        #I could put all the callers stuff here.
+        #There creating a few empty attributes on default is no big deal.
 
     def in_region(self,intervals):
         #integer start,end
@@ -106,7 +108,13 @@ class VEPannotation(object):
                 #VLR does not like to give AD/AF. This is an unchecked estimation.
                 if x['Tumor.AltDepth']=='.' and x['Tumor.AltFrac']!='.':
                         x['Tumor.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
-                #if x['Tumor.Zyg']=='.;.'
+                if x['Tumor.Zyg']=='.;.':
+                    if 0.0<float(x['Tumor.AltFrac'])<1.0:
+                        x['Tumor.Zyg']='HET'
+                    elif float(x['Tumor.AltFrac'])==1.0:
+                        x['Tumor.Zyg']='HOM_ALT'
+                    else:
+                        x['Tumor.Zyg']='HOM_REF'
             else:
                 x['Normal.ID']=c.sample
                 x['Normal.Depth']=f"{c.data.get('DP','.')}"
@@ -118,16 +126,14 @@ class VEPannotation(object):
                     x['Normal.AltFrac']=f"{c.data['AF']:.3f}"
                 if x['Normal.AltDepth']=='.' and x['Normal.AltFrac']!='.':
                         x['Normal.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
+                if x['Normal.Zyg']=='.;.':
+                    if 0.0<float(x['Normal.AltFrac'])<1.0:
+                        x['Normal.Zyg']='HET'
+                    elif float(x['Normal.AltFrac'])==1.0:
+                        x['Normal.Zyg']='HOM_ALT'
+                    else:
+                        x['Normal.Zyg']='HOM_REF'
         return [x]
-
-    @staticmethod
-    def variant_type():
-        ##Ways to get this
-        #1 INFO Field information; preferred but non-standard for many vcf generation
-        #2 commandline argument; if vcf files are split by type
-        #3 filename; similar to above but less robust.
-        #4 Conditional logic?
-        return 'Imprecise_variant'
 
     def info(self,CSQ):
         #INFOS
@@ -135,8 +141,7 @@ class VEPannotation(object):
         self.fields['Gene.Accession']=CSQ['Gene']
         #self.fields['Genomeic.Region']=
         self.fields['Variant.Class']=CSQ['VARIANT_CLASS']
-        #self.fields['Variant.Type']=self.variant_type()
-        self.fields['Variant.Type']='.'
+        self.fields['Variant.LoF_level']='.'
         self.fields['Variant.Consequence']=CSQ['Consequence']
         self.fields['HGVSc']=CSQ['HGVSc'].split(':')[-1]
         self.fields['HGVSp']=CSQ['HGVSp'].split(':')[-1]
@@ -211,6 +216,44 @@ class VEPannotation(object):
     def utrannotator(self):
         pass
 
+    def lof_level(self):
+        def check_level_one():
+            def condition_one(cv,am):
+                #ClinVar.SIG
+                #AM.Class
+                return ('pathogenic' in cv.lower() and 'conflicting' not in cv.lower()) or 'pathogenic' in am.lower()
+            def condition_two(vc):
+                #Variant.Consequence
+                return 'frameshift' in vc.lower() or 'stop_gained' in vc.lower()
+            def condition_three(ai_vals):
+                return any(v>0.5 for v in ai_vals)
+            def format_spliceai(vals):
+                #SpliceAI.DS_AG,SpliceAI.DS_AL,SpliceAI.DS_DG,SpliceAI.DS_DL
+                return [0.0 if x in ['.',''] else float(x) for x in vals]
+            def condition_four(r):
+                return r not in ['.',''] and float(r)>0.5
+            return (condition_one(self.fields['ClinVar.SIG'],self.fields['AM.Class']) or condition_two(self.fields['Variant.Consequence']) or condition_three(format_spliceai([self.fields[v] for v in ['SpliceAI.DS_AG','SpliceAI.DS_AL','SpliceAI.DS_DG','SpliceAI.DS_DL']])) or condition_four(self.fields['REVEL']))
+
+        def check_level_two():
+            #ClinVar.SIG
+            #AM.Class
+            def condition_one(cv,am):
+                return 'benign' not in cv.lower() and 'benign' not in am.lower()
+            #Variant.Consequence
+            def condition_two(vc):
+                return any(x in vc.lower() for x in ['protein_altering','missense','inframe','start_lost'])
+            #gnomadAD_AF_MAX
+            def condition_three(ad):
+                return ad in ['.',''] or float(ad)<0.01
+            return (condition_one(self.fields['ClinVar.SIG'],self.fields['AM.Class']) and condition_two(self.fields['Variant.Consequence']) and condition_three(self.fields['gnomAD.MAX_AF']))
+
+        if check_level_one():
+            self.fields['Variant.LoF_level']='1'
+        elif check_level_two():
+            self.fields['Variant.LoF_level']='2'
+        else:
+            self.fields['Variant.LoF_level']='3'
+
     def fill_values(self,header):
         for h in header:
             if self.fields[h]=='':
@@ -227,12 +270,14 @@ class VEPannotation(object):
         else:
             writer.writerow({**self.fields})
 
+#END CLASS
+
 def report_header(annotations,tumor_normal=False):
     if tumor_normal:
         header=['Tumor.ID','Normal.ID','Chr','Start','REF','ALT','FILTER']
     else:
         header=['Sample.ID','Chr','Start','REF','ALT','FILTER']
-    header+=['Gene','Gene.Accession','Variant.Class','Variant.Type','Variant.Consequence']
+    header+=['Gene','Gene.Accession','Variant.LoF_level','Variant.Category','Variant.Class','Variant.Consequence']
     header+=['HGVSc','HGVSp','Feature.Type','Feature.Accession','Bio.type','Existing.variation']
     header+=['EXON','INTRON','STRAND','cDNA.position','CDS.position','Protein.position','Amino.acids','Codons']
 
@@ -263,6 +308,10 @@ def report_header(annotations,tumor_normal=False):
             return ['Tumor.Zyg','Tumor.Depth','Tumor.AltDepth','Tumor.AltFrac','Normal.Zyg','Normal.Depth','Normal.AltDepth','Normal.AltFrac']
         return ['Sample.Zyg','Sample.Depth','Sample.AltDepth','Sample.AltFrac']
 
+    def vlr_values(tumor_normal=False):
+        return ['PROB_SOMATIC_TUMOR','PROB_GERMLINE','PROB_SOMATIC_NORMAL','PROB_FFPE_ARTIFACT','PROB_ARTIFACT','PROB_ABSENT']
+
+    #Cut OR rework
     if 'none' in annotations:
         return header
     elif 'everything' in annotations:
@@ -308,6 +357,14 @@ def bed_region_check(fp):
         pass
     return False,{}
 
+def phred_to_probability(phred_score):
+    #phred_score is a list
+    if phred_score==["NA"] or phred_score==[]:
+        return "NA"
+    elif phred_score[0]=='inf' or phred_score[0]==float('inf'):
+        return "0.0"
+    return f"{10**(-float(phred_score[0])/10):.3e}"
+
 def get_args(argv):
     #make single tumor_normal cohort as subparser?
     #scenrios may need some sort of sample id mapping file.
@@ -316,10 +373,11 @@ def get_args(argv):
     p.add_argument('-o','--output_csv',help='Output: csv file trimmed for specific design.')
     p.add_argument('-g','--gene_list',help='Optional list of genes to include only.')
     p.add_argument('-r','--bed_region',help='Bed file format to subset regions.')
-    p.add_argument('-t','--variant_type',help='Optional value for column field.')
+    p.add_argument('-V','--include_vlr',action='store_true',help='Include transformed VLR probability values.')
     p.add_argument('-m','--mode',default='cohort',help='Run mode determines how calls are reported. Single should be "single,{sample.id}. Tumor/Normal should be "tumor_normal,{tumor.id},{normal.id}" OR use "no_sample"')
     p.add_argument('annotations',nargs=argparse.REMAINDER,default='everything',choices=['everything','snv_prediction','gnomAD','splice_ai','clinvar','alphamissense','mavedb','genotype','none'],help='annotation blocks to include')
     return p.parse_args(argv)
+    #remove the whole everything choice. No one else is annotating, and we always do everything and subset columns after.
 
 def main(argv=None):
     args=get_args(argv)
@@ -353,6 +411,11 @@ def main(argv=None):
     if args.mode=='no_sample':
         for x in ['Sample.ID','Sample.Zyg','Sample.Depth','Sample.AltDepth','Sample.AltFrac']:
             header.remove(x)
+
+    #I did it like this simply to control the column order
+    if args.include_vlr:
+        for x in ['PROB_SOMATIC_TUMOR','PROB_GERMLINE','PROB_SOMATIC_NORMAL','PROB_FFPE_ARTIFACT','PROB_ARTIFACT','PROB_ABSENT']:
+            header.append(x)
     #test data
     #VcfReader=vcfpy.Reader.from_path('data/vcf/FLCN/PMBB-Release-2020-2.0_genetic_exome_FLCN_NF.norm.vep.vcf.gz')
     VcfReader=vcfpy.Reader.from_path(f'{args.input_vcf}')
@@ -368,15 +431,24 @@ def main(argv=None):
             vep_data=VEPannotation(record,tumor_normal,tumor)
 
             if 'ANN' not in record.INFO:
-                # This is from those fucking * calls in haplotype caller.
-                #print(f'Missing CSQ: {record}')
                 continue
             if 'RefCall' in record.FILTER:
                 continue
 
             if tumor_normal:
-                for x in ['LANCET','MUTECT2','STRELKA2','VARDICT','VARSCAN2']:
+                tools=['LANCET','MUTECT2','STRELKA2','VARDICT','VARSCAN2']
+                categories=[y for x in tools for y in record.INFO.get("CATEGORY",['NA']) if x in y and record.INFO.get(x,['NA'])==['PASS']]#Im a monster
+                #print(categories)
+                for x in tools:
                     vep_data.fields[x]=record.INFO.get(x,['NA'])[0]
+                vep_data.fields["Variant.Category"]=";".join(categories) if categories else 'NA'
+
+
+            if args.include_vlr:
+                for x in VcfReader.header.info_ids():
+                    if x.startswith("PROB_"):
+                        vep_data.fields[x]=phred_to_probability(record.INFO.get(x,['NA']))
+                        #Maybe this goes into class
 
             for csq_i in record.INFO['ANN']:
                 csq_dict=dict(zip(csq_keys,csq_i.split('|')))
@@ -390,7 +462,8 @@ def main(argv=None):
                     vep_data.clinvar(csq_dict)
                     vep_data.alphamissense(csq_dict)
                     vep_data.mavedb(csq_dict)
-                    #Hey this should only run if the annotation is present...
+                    vep_data.lof_level()
+
                     #more checks
                     if tumor_normal:
                         vep_data.calls[0]['Tumor.ID']=tumor
@@ -406,7 +479,6 @@ def main(argv=None):
                             continue
 
                     vep_data.fill_values(header)
-                    #print(vep_data.print(['ClinVar.SIG']))
                     if gene_filter and vep_data.fields['Gene'] in gene_list:
                         vep_data.report(writer)
                     elif region_filter and vep_data.in_region(bed_regions[record.CHROM]):
@@ -415,6 +487,7 @@ def main(argv=None):
                         vep_data.report(writer)
                     else:
                         continue
+    print(f"{outfile.name} written.")
 
 if __name__=='__main__':
     main()
@@ -425,19 +498,3 @@ if __name__=='__main__':
 #        main(parse_arguments())
 #    else:
 #        main(parse_snakemake())
-
-#Need to recover
-#CHROM  POS     ID      REF     ALT     QUAL    FILTER  INFO    FORMAT  PMBB1495195945216
-#17      17216394        17_17216394_T_TG        T       TG      641     .       AF=6.8e-05;AQ=641;AC=0;AN=1     GT:DP:AD:SBPV:GQ:PL:FT:RNC      ./0:50:24,0:0.3414:99:.:.:-.
-#17      17216394        17_17216394_TG_T        TG      T       435     MONOALLELIC     AF=1.1e-05;AQ=435;AC=1;AN=1     GT:DP:AD:SBPV:GQ:PL:FT:RNC      ./1:50:.,26:.:435:.:.:1.
-
-#Add check to make sure custom filter columns are there
-
-
-#Existing_variation > Existing.variation [rs780588085]
-#IMPACT ? [Look up what this value is from. WE determine impact]
-
-#Variant call method coutn
-#VLR filter
-#LOFTEE ?
-#Custom errors for get_calls to report rate of messed up AD fields, etc.

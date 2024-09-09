@@ -8,8 +8,24 @@ def get_args():
     argv=p.parse_args()
     return vars(argv)
 
-def get_smk():
-    return {'input':snakemake.input}
+def parse_snakemake():
+    argv['input']=snakemake.input
+    return argv
+
+def preprocess_vcf(file):
+    lines=[]
+    with open(file,'r') as f:
+        for line in f:
+            if not line.startswith('#'):
+                parts=line.split('\t')
+                parts[6]=parts[6].replace(',', ';')
+                lines.append('\t'.join(parts))
+            else:
+                lines.append(line)
+    temp_file=file.replace('.out','.preprocessed.vcf')
+    with open(temp_file,'w') as f:
+        f.writelines(lines)
+    return temp_file
 
 def process_vcf(file):
     filters=["RefReadPos","RefDist3","RefMapQual","RefMMQS","RefAvgRL",
@@ -30,11 +46,10 @@ def process_vcf(file):
             if not reader.header.has_header_line("FILTER",filter_id):
                 new_header.add_filter_line(vcfpy.OrderedDict([('ID',filter_id),('Description','No Description provided by VarScan2 authors')]))
 
-        output_file=file.replace('.vcf','.fix.vcf')
+        output_file=file.replace('.out','.processed.vcf')
         writer=vcfpy.Writer.from_path(output_file,new_header)
 
         for record in reader:
-            record.add_format('AF')
             for call in record.calls:
                 if 'AD' in call.data and 'DP' in call.data:
                     ad=call.data['AD']
@@ -45,16 +60,14 @@ def process_vcf(file):
             if len(record.FILTER)==1 and ',' in record.FILTER[0]:
                 record.FILTER=record.FILTER[0].split(',')
             writer.write_record(record)
+
         writer.close()
 
 def main(argv=None):
+    argv=get_args()if argv is None else argv
     for file in argv['input']:
+        #preprocessed_file=preprocess_vcf(file)
         process_vcf(file)
 
 if __name__=="__main__":
-    try:
-        snakemake
-    except NameError:
-        main(get_args())
-    else:
-        main(get_smk())
+    main()

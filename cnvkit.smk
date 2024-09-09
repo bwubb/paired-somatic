@@ -141,27 +141,19 @@ rule cnvkit_fix:
 
 rule cnvkit_input_vcf:
     input:
-        "data/work/{targets}/{tumor}/varscan2/germline.fpfilter.norm.vcf.gz",
-        "data/work/{targets}/{tumor}/varscan2/loh.fpfilter.norm.vcf.gz"
+        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/varscan2.input_snps.vcf.gz"
-    params:
-        tumor="{tumor}",
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        file="data/work/{targets}/{tumor}/cnvkit/rename.txt"
+        "data/work/{targets}/{tumor}/cnvkit/vardict.snps.clean.vcf.gz"
     shell:
         """
-        echo -e "tumor\\t{params.tumor}\\nnormal\\t{params.normal}\\nTUMOR\\t{params.tumor}\\nNORMAL\\t{params.normal}" > {params.file}
-
-        bcftools concat -a {input} | bcftools view --type snps -f PASS | bcftools reheader -s {params.file} | bcftools sort -O z -o {output}
-        bcftools index -t {output}
+        bcftools view -r 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y --type snps -f PASS -Oz -W=tbi -o {output} {input}
         """
 
 #can use threads with -p after you have a proper cluser config
 rule cnvkit_segment:
     input:
         cnr="data/work/{targets}/{tumor}/cnvkit/{tumor}.cnr",
-        vcf="data/work/{targets}/{tumor}/cnvkit/varscan2.input_snps.vcf.gz"
+        vcf="data/work/{targets}/{tumor}/cnvkit/vardict.snps.clean.vcf.gz"
     output:
         "data/work/{targets}/{tumor}/cnvkit/{tumor}.cns"
     params:
@@ -171,6 +163,7 @@ rule cnvkit_segment:
         """
         cnvkit.py segment {input.cnr} -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
         """
+#Native VarScan2 calls lack FORMAT:AF
 
 #export to seg
 rule cnvkit_export_seg:
@@ -185,40 +178,40 @@ rule cnvkit_export_seg:
 
 rule purecn_input_vcf:
     input:
-        "data/work/{targets}/{tumor}/varscan2/somatic.fpfilter.norm.vcf.gz",
-        "data/work/{targets}/{tumor}/varscan2/germline.fpfilter.norm.vcf.gz",
-        "data/work/{targets}/{tumor}/varscan2/loh.fpfilter.norm.vcf.gz"
+        "data/work/{targets}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",
+        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
     output:
-        "data/work/{targets}/{tumor}/purecn/varscan2.input_snps.vcf.gz"
+        "data/work/{targets}/{tumor}/purecn/vardict.snps.clean.vcf.gz"
     params:
-        tumor="{tumor}",
-        normal=lambda wildcards: PAIRS[wildcards.tumor],
-        file="data/work/{targets}/{tumor}/purecn/rename.txt"
+        vcf="data/work/{targets}/{tumor}/purecn/vardict.snps.vcf.gz"
     shell:
         """
-        echo -e "tumor\\t{params.tumor}\\nnormal\\t{params.normal}\\nTUMOR\\t{params.tumor}\\nNORMAL\\t{params.normal}" > {params.file}
-
-        bcftools concat -a {input} | bcftools view --type snps -f PASS | bcftools reheader -s {params.file} | bcftools sort -O z -o {output}
-        bcftools index -t {output}
+        bcftools concat -a {input} | bcftools view --type snps -f PASS | bcftools sort -W=tbi -Oz -o {params.vcf}
+        bcftools view -r 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y -W=tbi -Oz -o {output} {params.vcf}
         """
 
 rule purecn_run:
     input:
-        snps="data/work/{targets}/{tumor}/purecn/varscan2.input_snps.vcf.gz",
+        snps="data/work/{targets}/{tumor}/purecn/vardict.snps.clean.vcf.gz",
         seg="data/work/{targets}/{tumor}/cnvkit/{tumor}.seg",
         cnr="data/work/{targets}/{tumor}/cnvkit/{tumor}.cnr"
     output:
         "data/work/{targets}/{tumor}/purecn/{tumor}.csv",
         "data/work/{targets}/{tumor}/purecn/{tumor}_loh.csv"
     params:
+        seg="data/work/{targets}/{tumor}/purecn/input.seg",
+        cnr="data/work/{targets}/{tumor}/purecn/input.cnr",
         outdir="data/work/{targets}/{tumor}/purecn"
     shell:
         """
+        awk '$2 !~ /^[GK]/' {input.seg} > {params.seg}
+        awk '$1 !~ /^[GK]/' {input.cnr} > {params.cnr}
+
         Rscript /home/bwubb/software/PureCN/inst/extdata/PureCN.R \
         --out {params.outdir} \
         --sampleid {wildcards.tumor} \
-        --tumor {input.cnr} \
-        --seg-file {input.seg} \
+        --tumor {params.cnr} \
+        --seg-file {params.seg} \
         --vcf {input.snps} \
         --genome grch38 \
         --fun-segmentation Hclust \
@@ -235,6 +228,7 @@ rule purecn_to_bed:
         python cnv_to_bed.py -c purecn {input}
         """
 
+#I would like to add --sex
 rule purecn_HRDex:
     input:
         "data/work/{targets}/{tumor}/purecn/{tumor}_loh.bed"
@@ -271,10 +265,12 @@ rule purecn_annotsv_parser:
         """
 
 #--ploidy requires int
+#NEED sex
+#remove -y? change -x to female
 rule cnvkit_call:
     input:
         csv="data/work/{targets}/{tumor}/purecn/{tumor}.csv",
-        vcf="data/work/{targets}/{tumor}/cnvkit/varscan2.input_snps.vcf.gz",
+        vcf="data/work/{targets}/{tumor}/cnvkit/vardict.snps.clean.vcf.gz",
         cns="data/work/{targets}/{tumor}/cnvkit/{tumor}.cns"
     output:
         "data/work/{targets}/{tumor}/cnvkit/{tumor}.call.cns"
@@ -285,7 +281,7 @@ rule cnvkit_call:
         """
         purity=`grep {params.tumor} {input.csv} | cut -d, -f2`
 
-        cnvkit.py call {input.cns} -x female -m clonal --purity $purity -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
+        cnvkit.py call {input.cns} -y -x male -m clonal --purity $purity -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
         """
 
 rule cnvkit_to_bed:
@@ -337,12 +333,13 @@ rule purecn_purity_table:
     input:
         expand("data/work/{targets}/{tumor}/purecn/{tumor}.csv",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
     output:
-        "purecn_purity.table"
+        "purecn_purity.table","purecn_purity.table"
     run:
-        with open(output[0],'w') as outfile:
+        with open(output[0],'w') as outfile0, open(output[1],'w') as outfile1:
             for f in input:
                 with open(f,'r') as infile:
                     line=infile.readline()#header
                     line=infile.readline()
-                    sampleid,purity=line.replace('"','').rstrip().split(',')[0:2]
-                outfile.write(f'{sampleid}\t{purity}\n')
+                    sampleid,purity,ploidy=line.replace('"','').rstrip().split(',')[0:3]
+                outfile0.write(f'{sampleid}\t{purity}\n')
+                outfile1.write(f'{sampleid}\t{ploidy}\n')

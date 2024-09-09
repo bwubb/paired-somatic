@@ -89,7 +89,7 @@ rule strelka2_concat:
         snvs="{work_dir}/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",
         indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
     output:
-        "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
+        "{work_dir}/{tumor}/strelka2/somatic.vcf.gz"
     shell:
         """
         bcftools concat -a {input.snvs} {input.indels} | bcftools sort -W=tbi -Oz -o {output}
@@ -97,7 +97,7 @@ rule strelka2_concat:
 
 rule strelka2_somatic_normalized:
     input:
-        "{work_dir}/{tumor}/strelka2/results/variants/somatic.vcf.gz"
+        "{work_dir}/{tumor}/strelka2/somatic.vcf.gz"
     output:
         norm="{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz"
     params:

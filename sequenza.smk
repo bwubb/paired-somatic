@@ -33,7 +33,7 @@ wildcard_constraints:
 rule sequenza_all:
     input:
         expand("data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.report.csv",targets=f"{config['resources']['targets_key']}",tumor=PAIRS.keys()),
-        expand("data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.hrd.txt",targets=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
+        expand("data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.hrd.txt",targets=f"{config['resources']['targets_key']}",tumor=PAIRS.keys()),
         "sequenza_purity.table",
         "sequenza_ploidy.table"
 
@@ -115,7 +115,7 @@ rule sequenza_AnnotSV:
 
 rule sequenza_AnnotSV_parser:
     input:
-        "data/work/{targets}}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.tsv"
+        "data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.tsv"
     output:
         "data/work/{targets}/{tumor}/sequenza/{tumor}.sequenza.annotsv.gene_split.report.csv"
     shell:

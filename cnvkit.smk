@@ -141,7 +141,7 @@ rule cnvkit_fix:
 
 rule cnvkit_input_vcf:
     input:
-        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
+        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean2.vcf.gz"
     output:
         "data/work/{targets}/{tumor}/cnvkit/vardict.snps.clean.vcf.gz"
     shell:
@@ -178,8 +178,8 @@ rule cnvkit_export_seg:
 
 rule purecn_input_vcf:
     input:
-        "data/work/{targets}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",
-        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
+        "data/work/{targets}/{tumor}/vardict/somatic.twice_filtered.norm.clean2.vcf.gz",
+        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean2.vcf.gz"
     output:
         "data/work/{targets}/{tumor}/purecn/vardict.snps.clean.vcf.gz"
     params:
@@ -281,8 +281,9 @@ rule cnvkit_call:
         """
         purity=`grep {params.tumor} {input.csv} | cut -d, -f2`
 
-        cnvkit.py call {input.cns} -y -x male -m clonal --purity $purity -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
+        cnvkit.py call {input.cns} -x female -m clonal --purity $purity -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
         """
+        #if male need -y and -x male
 
 rule cnvkit_to_bed:
     input:
@@ -333,7 +334,7 @@ rule purecn_purity_table:
     input:
         expand("data/work/{targets}/{tumor}/purecn/{tumor}.csv",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
     output:
-        "purecn_purity.table","purecn_purity.table"
+        "purecn_purity.table","purecn_ploidy.table"
     run:
         with open(output[0],'w') as outfile0, open(output[1],'w') as outfile1:
             for f in input:

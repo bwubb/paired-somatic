@@ -29,8 +29,8 @@ def paired_bams(wildcards):
 
 rule ascat_all:
     input:
-        expand("data/work/{targets}/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.report.csv",targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{targets}/{tumor}/ascat/{tumor}.ascat.hrd.txt",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.report.csv",tumor=PAIRS.keys()),
+        expand("data/work/{tumor}/ascat/{tumor}.ascat.hrd.txt",tumor=PAIRS.keys())
 
 rule ASCAT_write_worksheet:
     input:
@@ -55,11 +55,16 @@ rule ASCAT_prepareTargetedSeq:
     params:
         outdir="data/work/ASCAT",
         alleles="/home/bwubb/projects/021-POSH_FFPE/G1000_allelesAll_hg38/G1000_alleles_hg38_chr",
-        bed=config['resources']['targets_bed']
+        bed=config['resources']['targets_bed'],
+        allelecounter="/home/bwubb/software/alleleCount/bin/alleleCounter",
+        min_counts=10,
+        min_base_qual=20,
+        min_map_qual=35,
+        ref_fasta=config['reference']['fasta']
     threads:
         8
-    script:
-        "ASCAT_prepareTargetedSeq.R"
+    shell:
+        "Rscript ASCAT_prepareTargetedSeq.R --worksheet {input.worksheet} --outdir {params.outdir} --alleles-prefix {params.alleles} --bed {params.bed} --allelecounter {params.allelecounter} --threads {threads} --min-counts {params.min_counts} --min-base-qual {params.min_base_qual} --min-map-qual {params.min_map_qual} --ref-fasta {params.ref_fasta}"
 
 
 rule ASCAT_prepareHTS:
@@ -68,49 +73,50 @@ rule ASCAT_prepareHTS:
         allele="data/work/ASCAT/alleleData/Cleaned/alleleData_chrX.txt",
         loci="data/work/ASCAT/alleleData/Cleaned/loci_chrX.txt"
     output:
-        tumorLogR="data/work/{targets}/{tumor}/ascat/Tumor_LogR.txt",
-        tumorBAF="data/work/{targets}/{tumor}/ascat/Tumor_BAF.txt",
-        germlineLogR="data/work/{targets}/{tumor}/ascat/Germline_LogR.txt",
-        germlineBAF="data/work/{targets}/{tumor}/ascat/Germline_BAF.txt"
+        tumorLogR="data/work/{tumor}/ascat/Tumor_LogR.txt",
+        tumorBAF="data/work/{tumor}/ascat/Tumor_BAF.txt",
+        germlineLogR="data/work/{tumor}/ascat/Germline_LogR.txt",
+        germlineBAF="data/work/{tumor}/ascat/Germline_BAF.txt"
     params:
+        outdir="data/work/{tumor}/ascat",
         bed=config["resources"]["targets_bed"],
         alleles="data/work/ASCAT/alleleData/Cleaned/alleleData_chr",
         loci="data/work/ASCAT/alleleData/Cleaned/loci_chr",
+        allelecounter="/home/bwubb/software/alleleCount/bin/alleleCounter",#need to fix the hardcoded path
         tumor='{tumor}',
         normal=lambda wildcards: PAIRS[wildcards.tumor]
-    threads:
-        1
-    script:
-        "ASCAT_prepareHTS.R"
+    threads: 1
+    shell:
+        "Rscript ASCAT_prepareHTS.R --tumor-bam {input.tumor} --normal-bam {input.normal} --tumor-name {params.tumor} --normal-name {params.normal} --outdir {params.outdir} --bed {params.bed} --alleles-prefix {params.alleles} --loci-prefix {params.loci} --allelecounter {params.allelecounter} --threads {threads}"
 
 rule ASCAT_runAscat:
     input:
-        tumorLogR="data/work/{targets}/{tumor}/ascat/Tumor_LogR.txt",
-        tumorBAF="data/work/{targets}/{tumor}/ascat/Tumor_BAF.txt",
-        germlineLogR="data/work/{targets}/{tumor}/ascat/Germline_LogR.txt",
-        germlineBAF="data/work/{targets}/{tumor}/ascat/Germline_BAF.txt"
+        tumorLogR="data/work/{tumor}/ascat/Tumor_LogR.txt",
+        tumorBAF="data/work/{tumor}/ascat/Tumor_BAF.txt",
+        germlineLogR="data/work/{tumor}/ascat/Germline_LogR.txt",
+        germlineBAF="data/work/{tumor}/ascat/Germline_BAF.txt"
     output:
-        segments="data/work/{targets}/{tumor}/ascat/{tumor}.segments.txt",
-        rdata="data/work/{targets}/{tumor}/ascat/ASCAT_objects.Rdata"
+        segments="data/work/{tumor}/ascat/{tumor}.segments.txt",
+        rdata="data/work/{tumor}/ascat/ASCAT_objects.Rdata"
     params:
-        outdir="data/work/{targets}/{tumor}/ascat",
-        gc_file="GC_G1000_hg38.txt"
-    script:
-        "ASCAT_runAscat.R"
+        outdir="data/work/{tumor}/ascat",
+        gc_file=config["resources"]["gc_file"]#gc_file="GC_G1000_hg38.txt"
+    shell:
+        "Rscript ASCAT_runAscat.R --tumor-logr {input.tumorLogR} --tumor-baf {input.tumorBAF} --germline-logr {input.germlineLogR} --germline-baf {input.germlineBAF} --outdir {params.outdir} --gc-file {params.gc_file} --rdata {output.rdata}"
 
 rule ASCAT_to_bed:
     input:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.segments.txt"
+        "data/work/{tumor}/ascat/{tumor}.segments.txt"
     output:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.segments.bed"
+        "data/work/{tumor}/ascat/{tumor}.segments.bed"
     shell:
         "python cnv_to_bed.py -c ascat {input}"
 
 rule ASCAT_annotsv:
     input:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.segments.bed"
+        "data/work/{tumor}/ascat/{tumor}.segments.bed"
     output:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.tsv"
+        "data/work/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.tsv"
     params:
         build=config['reference']['key']
     shell:
@@ -120,9 +126,9 @@ rule ASCAT_annotsv:
 
 rule ASCAT_annotsv_parser:
     input:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.tsv"
+        "data/work/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.tsv"
     output:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.report.csv"
+        "data/work/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.report.csv"
     shell:
         """
         python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.tumor}
@@ -130,9 +136,9 @@ rule ASCAT_annotsv_parser:
 
 rule ascat_HRDex:
     input:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.segments.bed"
+        "data/work/{tumor}/ascat/{tumor}.segments.bed"
     output:
-        "data/work/{targets}/{tumor}/ascat/{tumor}.ascat.hrd.txt"
+        "data/work/{tumor}/ascat/{tumor}.ascat.hrd.txt"
     params:
         tumor="{tumor}",
         build="grch38"

@@ -19,17 +19,17 @@ def normal_cnn(wildcards):
     #Provide the *.targetcoverage.cnn and *.antitargetcoverage.cnn files created by the coverage command:
     cnn=[]
     for n in list(PAIRS.values()):
-        if f"data/work/{config['resources']['targets_key']}/{n}/cnvkit/targetcoverage.cnn" not in cnn:
-            cnn.append(f"data/work/{config['resources']['targets_key']}/{n}/cnvkit/{n}.targetcoverage.cnn")
-            cnn.append(f"data/work/{config['resources']['targets_key']}/{n}/cnvkit/{n}.antitargetcoverage.cnn")
+        if f"data/work/{n}/cnvkit/targetcoverage.cnn" not in cnn:
+            cnn.append(f"data/work/{n}/cnvkit/{n}.targetcoverage.cnn")
+            cnn.append(f"data/work/{n}/cnvkit/{n}.antitargetcoverage.cnn")
     return cnn
 
 rule cnvkit_all:
     input:
-        expand('data/work/{targets}/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.report.csv',targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{targets}/{tumor}/cnvkit/{tumor}.cnvkit.hrd.txt",targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand('data/work/{targets}/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.report.csv',targets=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{targets}/{tumor}/purecn/{tumor}.purecn.hrd.txt",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand('data/work/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.report.csv',tumor=PAIRS.keys()),
+        expand("data/work/{tumor}/cnvkit/{tumor}.cnvkit.hrd.txt",tumor=PAIRS.keys()),
+        expand('data/work/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.report.csv',tumor=PAIRS.keys()),
+        expand("data/work/{tumor}/purecn/{tumor}.purecn.hrd.txt",tumor=PAIRS.keys())
 
 
 rule cnvkit_access:
@@ -88,9 +88,9 @@ rule cnvkit_autobin:
 rule cnvkit_target_coverage:
     input:
         bam=lambda wildcards: BAMS[wildcards.sample],
-        bed=lambda wildcards: f"data/cnvkit/{config['project']['name']}.{wildcards.targets}.cnvkit-targets.bed"
+        bed=lambda wildcards: f"data/cnvkit/{config['project']['name']}.{config['resources']['targets_key']}.cnvkit-targets.bed"
     output:
-        "data/work/{targets}/{sample}/cnvkit/{sample}.targetcoverage.cnn"
+        "data/work/{sample}/cnvkit/{sample}.targetcoverage.cnn"
     shell:
         """
         cnvkit.py coverage {input.bam} {input.bed} -o {output}
@@ -99,9 +99,9 @@ rule cnvkit_target_coverage:
 rule cnvkit_antitarget_coverage:
     input:
         bam=lambda wildcards: BAMS[wildcards.sample],
-        bed=lambda wildcards: f"data/cnvkit/{config['project']['name']}.{wildcards.targets}.cnvkit-antitargets.bed"
+        bed=f"data/cnvkit/{config['project']['name']}.{config['resources']['targets_key']}.cnvkit-antitargets.bed"
     output:
-        'data/work/{targets}/{sample}/cnvkit/{sample}.antitargetcoverage.cnn'
+        'data/work/{sample}/cnvkit/{sample}.antitargetcoverage.cnn'
     shell:
         """
         cnvkit.py coverage {input.bam} {input.bed} -o {output}
@@ -129,11 +129,11 @@ rule cnvkit_reference:
 #file names needs to be sample.{,anti}targetcoverage.cnn
 rule cnvkit_fix:
     input:
-        targets="data/work/{targets}/{tumor}/cnvkit/{tumor}.targetcoverage.cnn",
-        antitargets="data/work/{targets}/{tumor}/cnvkit/{tumor}.antitargetcoverage.cnn",
+        targets="data/work/{tumor}/cnvkit/{tumor}.targetcoverage.cnn",
+        antitargets="data/work/{tumor}/cnvkit/{tumor}.antitargetcoverage.cnn",
         reference="data/cnvkit/reference.cnn"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.cnr"
+        "data/work/{tumor}/cnvkit/{tumor}.cnr"
     shell:
         """
         cnvkit.py fix {input.targets} {input.antitargets} {input.reference} -o {output}
@@ -141,9 +141,9 @@ rule cnvkit_fix:
 
 rule cnvkit_input_vcf:
     input:
-        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean2.vcf.gz"
+        "data/work/{tumor}/vardict/germline.twice_filtered.norm.vcf.gz"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/vardict.snps.clean.vcf.gz"
+        "data/work/{tumor}/cnvkit/vardict.snps.clean.vcf.gz"
     shell:
         """
         bcftools view -r 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y --type snps -f PASS -Oz -W=tbi -o {output} {input}
@@ -152,10 +152,10 @@ rule cnvkit_input_vcf:
 #can use threads with -p after you have a proper cluser config
 rule cnvkit_segment:
     input:
-        cnr="data/work/{targets}/{tumor}/cnvkit/{tumor}.cnr",
-        vcf="data/work/{targets}/{tumor}/cnvkit/vardict.snps.clean.vcf.gz"
+        cnr="data/work/{tumor}/cnvkit/{tumor}.cnr",
+        vcf="data/work/{tumor}/cnvkit/vardict.snps.clean.vcf.gz"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.cns"
+        "data/work/{tumor}/cnvkit/{tumor}.cns"
     params:
         tumor="{tumor}",
         normal=lambda wildcards: PAIRS[wildcards.tumor]
@@ -168,9 +168,9 @@ rule cnvkit_segment:
 #export to seg
 rule cnvkit_export_seg:
     input:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.cns"
+        "data/work/{tumor}/cnvkit/{tumor}.cns"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.seg"
+        "data/work/{tumor}/cnvkit/{tumor}.seg"
     shell:
         """
         cnvkit.py export seg {input} -o {output}
@@ -178,12 +178,12 @@ rule cnvkit_export_seg:
 
 rule purecn_input_vcf:
     input:
-        "data/work/{targets}/{tumor}/vardict/somatic.twice_filtered.norm.clean2.vcf.gz",
-        "data/work/{targets}/{tumor}/vardict/germline.twice_filtered.norm.clean2.vcf.gz"
+        "data/work/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",
+        "data/work/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
     output:
-        "data/work/{targets}/{tumor}/purecn/vardict.snps.clean.vcf.gz"
+        "data/work/{tumor}/purecn/vardict.snps.clean.vcf.gz"
     params:
-        vcf="data/work/{targets}/{tumor}/purecn/vardict.snps.vcf.gz"
+        vcf="data/work/{tumor}/purecn/vardict.snps.vcf.gz"
     shell:
         """
         bcftools concat -a {input} | bcftools view --type snps -f PASS | bcftools sort -W=tbi -Oz -o {params.vcf}
@@ -192,16 +192,16 @@ rule purecn_input_vcf:
 
 rule purecn_run:
     input:
-        snps="data/work/{targets}/{tumor}/purecn/vardict.snps.clean.vcf.gz",
-        seg="data/work/{targets}/{tumor}/cnvkit/{tumor}.seg",
-        cnr="data/work/{targets}/{tumor}/cnvkit/{tumor}.cnr"
+        snps="data/work/{tumor}/purecn/vardict.snps.clean.vcf.gz",
+        seg="data/work/{tumor}/cnvkit/{tumor}.seg",
+        cnr="data/work/{tumor}/cnvkit/{tumor}.cnr"
     output:
-        "data/work/{targets}/{tumor}/purecn/{tumor}.csv",
-        "data/work/{targets}/{tumor}/purecn/{tumor}_loh.csv"
+        "data/work/{tumor}/purecn/{tumor}.csv",
+        "data/work/{tumor}/purecn/{tumor}_loh.csv"
     params:
-        seg="data/work/{targets}/{tumor}/purecn/input.seg",
-        cnr="data/work/{targets}/{tumor}/purecn/input.cnr",
-        outdir="data/work/{targets}/{tumor}/purecn"
+        seg="data/work/{tumor}/purecn/input.seg",
+        cnr="data/work/{tumor}/purecn/input.cnr",
+        outdir="data/work/{tumor}/purecn"
     shell:
         """
         awk '$2 !~ /^[GK]/' {input.seg} > {params.seg}
@@ -220,9 +220,9 @@ rule purecn_run:
 
 rule purecn_to_bed:
     input:
-        "data/work/{targets}/{tumor}/purecn/{tumor}_loh.csv"
+        "data/work/{tumor}/purecn/{tumor}_loh.csv"
     output:
-        "data/work/{targets}/{tumor}/purecn/{tumor}_loh.bed"
+        "data/work/{tumor}/purecn/{tumor}_loh.bed"
     shell:
         """
         python cnv_to_bed.py -c purecn {input}
@@ -231,9 +231,9 @@ rule purecn_to_bed:
 #I would like to add --sex
 rule purecn_HRDex:
     input:
-        "data/work/{targets}/{tumor}/purecn/{tumor}_loh.bed"
+        "data/work/{tumor}/purecn/{tumor}_loh.bed"
     output:
-        "data/work/{targets}/{tumor}/purecn/{tumor}.purecn.hrd.txt"
+        "data/work/{tumor}/purecn/{tumor}.purecn.hrd.txt"
     params:
         tumor="{tumor}",
         build="grch38"
@@ -244,9 +244,9 @@ rule purecn_HRDex:
 
 rule purecn_annotsv:
     input:
-        "data/work/{targets}/{tumor}/purecn/{tumor}_loh.bed"
+        "data/work/{tumor}/purecn/{tumor}_loh.bed"
     output:
-        "data/work/{targets}/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.tsv"
+        "data/work/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.tsv"
     params:
         build=config['reference']['key']
     shell:
@@ -256,9 +256,9 @@ rule purecn_annotsv:
 
 rule purecn_annotsv_parser:
     input:
-        "data/work/{targets}/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.tsv"
+        "data/work/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.tsv"
     output:
-        "data/work/{targets}/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.report.csv"
+        "data/work/{tumor}/purecn/{tumor}.purecn.annotsv.gene_split.report.csv"
     shell:
         """
         python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.tumor}
@@ -269,11 +269,11 @@ rule purecn_annotsv_parser:
 #remove -y? change -x to female
 rule cnvkit_call:
     input:
-        csv="data/work/{targets}/{tumor}/purecn/{tumor}.csv",
-        vcf="data/work/{targets}/{tumor}/cnvkit/vardict.snps.clean.vcf.gz",
-        cns="data/work/{targets}/{tumor}/cnvkit/{tumor}.cns"
+        csv="data/work/{tumor}/purecn/{tumor}.csv",
+        vcf="data/work/{tumor}/cnvkit/vardict.snps.clean.vcf.gz",
+        cns="data/work/{tumor}/cnvkit/{tumor}.cns"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.call.cns"
+        "data/work/{tumor}/cnvkit/{tumor}.call.cns"
     params:
         tumor="{tumor}",
         normal=lambda wildcards: PAIRS[wildcards.tumor]
@@ -287,9 +287,9 @@ rule cnvkit_call:
 
 rule cnvkit_to_bed:
     input:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.call.cns"
+        "data/work/{tumor}/cnvkit/{tumor}.call.cns"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.call.bed"
+        "data/work/{tumor}/cnvkit/{tumor}.call.bed"
     shell:
         """
         python cnv_to_bed.py -c cnvkit {input}
@@ -297,9 +297,9 @@ rule cnvkit_to_bed:
 
 rule cnvkit_HRDex:
     input:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.call.bed"
+        "data/work/{tumor}/cnvkit/{tumor}.call.bed"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.cnvkit.hrd.txt"
+        "data/work/{tumor}/cnvkit/{tumor}.cnvkit.hrd.txt"
     params:
         tumor="{tumor}",
         build="grch38"
@@ -310,9 +310,9 @@ rule cnvkit_HRDex:
 
 rule cnvkit_annotsv:
     input:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.call.bed"
+        "data/work/{tumor}/cnvkit/{tumor}.call.bed"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.tsv"
+        "data/work/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.tsv"
     params:
         build=config['reference']['key']
     shell:
@@ -322,9 +322,9 @@ rule cnvkit_annotsv:
 
 rule cnvkit_annotsv_parser:
     input:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.tsv"
+        "data/work/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.tsv"
     output:
-        "data/work/{targets}/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.report.csv"
+        "data/work/{tumor}/cnvkit/{tumor}.cnvkit.annotsv.gene_split.report.csv"
     shell:
         """
         python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.tumor}
@@ -332,7 +332,7 @@ rule cnvkit_annotsv_parser:
 
 rule purecn_purity_table:
     input:
-        expand("data/work/{targets}/{tumor}/purecn/{tumor}.csv",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{tumor}/purecn/{tumor}.csv",tumor=PAIRS.keys())
     output:
         "purecn_purity.table","purecn_ploidy.table"
     run:

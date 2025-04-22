@@ -22,33 +22,35 @@ def paired_bams(wildcards):
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
 ### SNAKEMAKE ###
-
 localrules: vardict_sample_name
 
-wildcard_constraints:
-    work_dir=f"data/work/{config['resources']['targets_key']}"
 
-#switch to 1filter/2filter
-rule filter_applied_vardict_somatic:
+rule run_paired_vardict:
     input:
-        expand("data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/final/{tumor}/{tumor}.vardict.somatic.final.bcf", tumor=PAIRS.keys()),
+        expand("data/final/{tumor}/{tumor}.vardict.germline.final.bcf", tumor=PAIRS.keys())
+
+rule run_unpaired_vardict:
+    input:
+        expand("data/work/{sample}/{sample}.vardict.unpaired.vcf.gz", sample=SAMPLES)
+
 
 rule filter_applied_vardict:
     input:
-        expand("data/work/{lib}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys()),
-        expand("data/work/{lib}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+        expand("data/work/{tumor}/vardict/somatic.filter2.norm.clean.vcf.gz",tumor=PAIRS.keys()),
+        expand("data/work/{tumor}/vardict/germline.filter2.norm.clean.vcf.gz",tumor=PAIRS.keys())
 
 rule unprocessed_vardict_unpaired:
     input:
-        expand("data/work/{lib}/{sample}/vardict/unpaired_variants.vcf.gz",lib=config['resources']['targets_key'],sample=SAMPLES)
+        expand("data/work/{sample}/vardict/unpaired_variants.vcf.gz",sample=SAMPLES)
 
-rule run_VarDictJava:#First a more lenient -P val, not sure what
+rule vardict_paired_main:#First a more lenient -P val, not sure what
     input:
         unpack(paired_bams)
     output:
-        "{work_dir}/{tumor}/vardict/variants.vcf.gz"
+        "data/work/{tumor}/vardict/variants.paired.vcf.gz"
     params:
-        init="{work_dir}/{tumor}/vardict/output.vcf.gz",
+        init=temp("data/work/{tumor}/vardict/output.vcf.gz"),
         bam=lambda wildcards: BAMS[wildcards.tumor],
         ref=config['reference']['fasta'],
         bed=config['resources']['targets_bed'],
@@ -60,65 +62,67 @@ rule run_VarDictJava:#First a more lenient -P val, not sure what
     shell:#split to snps and indels
         """
         VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {params.init}
-        tabix -p vcf {params.init}
+        bcftools index -t {params.init}
         gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {params.bam} --output {output}
         """
 
-rule run_unpaired_VarDictJava:#First a more lenient -P val, not sure what
+rule vardict_unpaired_main:#First a more lenient -P val, not sure what
     input:
         bam=lambda wildcards: BAMS[wildcards.sample]
     output:
-        "{work_dir}/{sample}/vardict/unpaired_variants.vcf.gz"
+        "data/work/{sample}/vardict/variants.unpaired.vcf.gz"
     params:
-        init="{work_dir}/{sample}/vardict/output2.vcf.gz",
+        init=temp("data/work/{sample}/vardict/output2.vcf.gz"),
         ref=config['reference']['fasta'],
         bed=config['resources']['targets_bed'],
-        path="/home/bwubb/software/VarDictJava/VarDict",
+        path="$HOME/software/VarDictJava/VarDict",
         AF_THR=0.01
+    threads:
+        4
     shell:
         """
-        VarDict -G {params.ref} -f {params.AF_THR} -N {wildcards.sample} -b {input.bam} -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/teststrandbias.R | {params.path}/var2vcf_valid.pl -N {wildcards.sample} -f {params.AF_THR} | bgzip -c > {params.init}
-        tabix -fp vcf {params.init}
+        VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.sample} -b {input.bam} -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/teststrandbias.R | {params.path}/var2vcf_valid.pl -N {wildcards.sample} -f {params.AF_THR} | bgzip -c > {params.init}
+        bcftools index -t {params.init}
         gatk UpdateVCFSequenceDictionary -V {params.init} --source-dictionary {input} --output {output}
         """
 
-#the part where it makes somatic is not needed any long
 rule vardict_filter:
     input:
-        "{work_dir}/{tumor}/vardict/variants.vcf.gz"
+        "data/work/{tumor}/vardict/variants.paired.vcf.gz"
     output:
-        somatic="{work_dir}/{tumor}/vardict/somatic.vcf.gz",
-        once="{work_dir}/{tumor}/vardict/variants.once_filtered.vcf.gz",
-        twice="{work_dir}/{tumor}/vardict/variants.twice_filtered.vcf.gz"
+        once="data/work/{tumor}/vardict/variants.paired.filter1.vcf.gz",
+        twice="data/work/{tumor}/vardict/variants.paired.filter2.vcf.gz"
     shell:
         """
-        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -O z -o {output.somatic} {input}
-        tabix -p vcf {output.somatic}
-        bcftools filter --threads {threads} -e '((FORMAT/AF[0] * FORMAT/DP[0] < 6) && ((FORMAT/MQ[0] < 55.0 && FORMAT/NM[0] > 1.0) || (FORMAT/MQ[0] < 60.0 && FORMAT/NM[0] > 2.0) || (FORMAT/DP[0] < 10) || (QUAL < 45)))' -s filter_1 -m + -O z {input} > {output.once}
-        tabix -p vcf {output.once}
-        bcftools filter --threads {threads} -e 'FORMAT/AF[0] < 0.2 && FORMAT/QUAL[0] < 55 && INFO/SSF[0] > 0.06' -s filter_2 -m + -O z {output.once} > {output.twice}
-        tabix -p vcf {output.twice}
+        bcftools filter -e '((FORMAT/AF[0] * FORMAT/DP[0] < 6) && ((FORMAT/MQ[0] < 55.0 && FORMAT/NM[0] > 1.0) || (FORMAT/MQ[0] < 60.0 && FORMAT/NM[0] > 2.0) || (FORMAT/DP[0] < 10) || (QUAL < 45)))' -s filter_1 -m + -W=tbi -O z {input} > {output.once}
+        bcftools filter -e 'FORMAT/AF[0] < 0.2 && FORMAT/QUAL[0] < 55 && INFO/SSF[0] > 0.06' -s filter_2 -m + -W=tbi -O z {output.once} > {output.twice}
         """
 
 #Maybe filter is only good for somatic?
 #What germline/loh are filtered out?
 rule vardict_split:
     input:
-        "{work_dir}/{tumor}/vardict/variants.twice_filtered.vcf.gz"
+        one="data/work/{tumor}/vardict/variants.paired.vcf.gz",
+        two="data/work/{tumor}/vardict/variants.paired.filter2.vcf.gz"
     output:
-        somatic="{work_dir}/{tumor}/vardict/somatic.twice_filtered.vcf.gz",
-        germline="{work_dir}/{tumor}/vardict/germline.twice_filtered.vcf.gz"
+        somatic1="data/work/{tumor}/vardict/somatic.vcf.gz",
+        somatic2="data/work/{tumor}/vardict/somatic.filter2.vcf.gz",
+        germline1="data/work/{tumor}/vardict/germline.vcf.gz",
+        germline2="data/work/{tumor}/vardict/germline.filter2.vcf.gz"
     shell:
         """
-        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -W=tbi -O z -o {output.somatic} {input}
-        bcftools view -i 'INFO/STATUS==\"Germline\" || INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -W=tbi -O z -o {output.germline} {input}
+        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -W=tbi -O z -o {output.somatic1} {input.one}
+        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -W=tbi -O z -o {output.somatic2} {input.two}
+        
+        bcftools view -i 'INFO/STATUS==\"Germline\" || INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -W=tbi -O z -o {output.germline1} {input.one}
+        bcftools view -i 'INFO/STATUS==\"Germline\" || INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -W=tbi -O z -o {output.germline2} {input.two}
         """
 
 rule vardict_somatic_normalized:
     input:
-        "{work_dir}/{tumor}/vardict/somatic.twice_filtered.vcf.gz"
+        "data/work/{tumor}/vardict/somatic.filter2.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz"
+        norm="data/work/{tumor}/vardict/somatic.filter2.norm.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -128,7 +132,7 @@ rule vardict_somatic_normalized:
 
 rule vardict_sample_name:
     output:
-        "{work_dir}/{tumor}/vardict/sample.name"
+        "data/work/{tumor}/vardict/sample.name"
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -139,15 +143,15 @@ rule vardict_sample_name:
 
 rule vardict_somatic_clean:
     input:
-        name="{work_dir}/{tumor}/vardict/sample.name",
-        vcf="{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.vcf.gz"
+        name="data/work/{tumor}/vardict/sample.name",
+        vcf="data/work/{tumor}/vardict/somatic.filter2.norm.vcf.gz"
     output:
-        clean="{work_dir}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz"
+        clean="data/work/{tumor}/vardict/somatic.filter2.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
-        vcf=temp("{work_dir}/{tumor}/vardict/temp.h.vcf.gz")
+        vcf=temp("data/work/{tumor}/vardict/temp.h.vcf.gz")
     shell:
         """
         bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
@@ -156,21 +160,26 @@ rule vardict_somatic_clean:
         bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
-rule vardict_somatic_final:
+rule vardict_somatic_final_output:
     input:
-        "data/work/{config['resources']['targets_key']}/{tumor}/vardict/somatic.twice_filtered.norm.clean.vcf.gz"
+        "data/work/{tumor}/vardict/somatic.vcf.gz",
+        "data/work/{tumor}/vardict/somatic.filter2.norm.clean.vcf.gz"
     output:
-        "data/final/{tumor}/{tumor}.vardict.somatic.vcf.gz"
+        "data/final/{tumor}/{tumor}.vardict.somatic.bcf",
+        "data/final/{tumor}/{tumor}.vardict.somatic.final.bcf"
+    params:
+        lib=config['resources']['targets_key']
     shell:
         """
-        bcftools view -W=tbi -Oz -o {output} {input}
+        bcftools view -W=tbi -Ob -o {output[0]} {input[0]}
+        bcftools view -W=tbi -Ob -o {output[1]} {input[1]}
         """
 
 rule vardict_germline_normalized:
     input:
-        "{work_dir}/{tumor}/vardict/germline.twice_filtered.vcf.gz"
+        "data/work/{tumor}/vardict/germline.filter2.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.vcf.gz"
+        norm="data/work/{tumor}/vardict/germline.filter2.norm.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
@@ -181,15 +190,15 @@ rule vardict_germline_normalized:
 
 rule vardict_germline_clean:
     input:
-        name="{work_dir}/{tumor}/vardict/sample.name",
-        vcf="{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.vcf.gz"
+        name="data/work/{tumor}/vardict/sample.name",
+        vcf="data/work/{tumor}/vardict/germline.filter2.norm.vcf.gz"
     output:
-        clean="{work_dir}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
+        clean="data/work/{tumor}/vardict/germline.filter2.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
-        vcf=temp("{work_dir}/{tumor}/vardict/temp.g.vcf.gz")
+        vcf=temp("data/work/{tumor}/vardict/temp.g.vcf.gz")
     shell:
         """
         bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
@@ -200,10 +209,13 @@ rule vardict_germline_clean:
 
 rule vardict_germline_final:
     input:
-        "data/work/{config['resources']['targets_key']}/{tumor}/vardict/germline.twice_filtered.norm.clean.vcf.gz"
+        "data/work/{tumor}/vardict/germline.vcf.gz",
+        "data/work/{tumor}/vardict/germline.filter2.norm.clean.vcf.gz"
     output:
-        "data/final/{tumor}/{tumor}.vardict.germline.vcf.gz"
+        "data/final/{tumor}/{tumor}.vardict.germline.bcf",
+        "data/final/{tumor}/{tumor}.vardict.germline.final.bcf"
     shell:
         """
-        bcftools view -W=tbi -Oz -o {output} {input}
+        bcftools view -W=tbi -Ob -o {output[0]} {input[0]}
+        bcftools view -W=tbi -Ob -o {output[1]} {input[1]}
         """

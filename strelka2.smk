@@ -1,3 +1,5 @@
+##Author: Brad Wubbenhorst
+
 import os
 
 ### INIT ###
@@ -23,59 +25,56 @@ def paired_bams(wildcards):
 
 ### SNAKEMAKE ###
 
-wildcard_constraints:
-    work_dir=f"data/work/{config['resources']['targets_key']}"
+rule run_strelka2:
+    input: expand("data/final/{tumor}/{tumor}.strelka2.somatic.final.bcf",tumor=PAIRS.keys())
+    #ADD MANTA
 
-rule collect_strelka2:
-    input:
-        expand("data/work/{lib}/{tumor}/strelka2/somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
-
-rule write_Manta:
+rule manta_write_workflow:
     input:
         unpack(paired_bams)
     output:
-        temp("{work_dir}/{tumor}/manta/runWorkflow.py")
+        temp("data/work/{tumor}/manta/runWorkflow.py")
     params:
-        runDir="{work_dir}/{tumor}/manta",
+        runDir="data/work/{tumor}/manta",
         reference=config['reference']['fasta'],
         bedgz=config['resources']['targets_bedgz']
     shell:
         "$HOME/software/manta/bin/configManta.py --normalBam {input.normal} --tumorBam {input.tumor} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.runDir}"
 
-rule run_Manta:
+rule manta_main:
     input:
-        "{work_dir}/{tumor}/manta/runWorkflow.py"
+        "data/work/{tumor}/manta/runWorkflow.py"
     output:
-        "{work_dir}/{tumor}/manta/results/variants/candidateSmallIndels.vcf.gz",
-        "{work_dir}/{tumor}/manta/results/variants/candidateSV.vcf.gz",
-        "{work_dir}/{tumor}/manta/results/variants/diploidSV.vcf.gz",
-        "{work_dir}/{tumor}/manta/results/variants/somaticSV.vcf.gz"
+        "data/work/{tumor}/manta/results/variants/candidateSmallIndels.vcf.gz",
+        "data/work/{tumor}/manta/results/variants/candidateSV.vcf.gz",
+        "data/work/{tumor}/manta/results/variants/diploidSV.vcf.gz",
+        "data/work/{tumor}/manta/results/variants/somaticSV.vcf.gz"
     threads:
         4
     shell:
         "{input} -m local -j {threads}"
 
-rule write_Strelka2:
+rule strelka2_write_workflow:
     input:
         unpack(paired_bams),
-        indels="{work_dir}/{tumor}/manta/results/variants/candidateSmallIndels.vcf.gz"
+        indels="data/work/{tumor}/manta/results/variants/candidateSmallIndels.vcf.gz"
     output:
-        temp("{work_dir}/{tumor}/strelka2/runWorkflow.py")
+        temp("data/work/{tumor}/strelka2/runWorkflow.py")
     params:
-        runDir="{work_dir}/{tumor}/strelka2",
+        runDir="data/work/{tumor}/strelka2",
         reference=config['reference']['fasta'],
         bedgz=config['resources']['targets_bedgz']
     shell:
         "$HOME/software/strelka/bin/configureStrelkaSomaticWorkflow.py --normalBam {input.normal} --tumorBam {input.tumor} --indelCandidates {input.indels} --referenceFasta {params.reference} --callRegions {params.bedgz} --exome --runDir {params.runDir}"
 
-rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont work if the runWorkflow.py script already exists.
+rule strelka2_main:
     input:
-        "{work_dir}/{tumor}/strelka2/runWorkflow.py"
+        "data/work/{tumor}/strelka2/runWorkflow.py"
     output:
-        snvs="{work_dir}/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",#not snps
-        indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
+        snvs="data/work/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",#not snps
+        indels="data/work/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
     params:
-        workdir="{work_dir}/{tumor}/strelka2",
+        workdir="data/work/{tumor}/strelka2",
         reference=config['reference']['fasta'],
         bedgz=config['resources']['targets_bedgz']
     threads:
@@ -86,10 +85,10 @@ rule run_Strelka2:#You sholuld put all concats in a differnt rule. Strelka wont 
 
 rule strelka2_concat:
     input:
-        snvs="{work_dir}/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",
-        indels="{work_dir}/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
+        snvs="data/work/{tumor}/strelka2/results/variants/somatic.snvs.vcf.gz",
+        indels="data/work/{tumor}/strelka2/results/variants/somatic.indels.vcf.gz"
     output:
-        "{work_dir}/{tumor}/strelka2/somatic.vcf.gz"
+        "data/work/{tumor}/strelka2/somatic.vcf.gz"
     shell:
         """
         bcftools concat -a {input.snvs} {input.indels} | bcftools sort -W=tbi -Oz -o {output}
@@ -97,9 +96,9 @@ rule strelka2_concat:
 
 rule strelka2_somatic_normalized:
     input:
-        "{work_dir}/{tumor}/strelka2/somatic.vcf.gz"
+        "data/work/{tumor}/strelka2/somatic.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz"
+        norm="data/work/{tumor}/strelka2/somatic.norm.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -109,7 +108,7 @@ rule strelka2_somatic_normalized:
 
 rule strelka2_sample_name:
     output:
-        "{work_dir}/{tumor}/strelka2/sample.name"
+        "data/work/{tumor}/strelka2/sample.name"
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -120,29 +119,34 @@ rule strelka2_sample_name:
 
 rule strelka2_somatic_clean:
     input:
-        name="{work_dir}/{tumor}/strelka2/sample.name",
-        vcf="{work_dir}/{tumor}/strelka2/somatic.norm.vcf.gz"
+        name="data/work/{tumor}/strelka2/sample.name",
+        vcf="data/work/{tumor}/strelka2/somatic.norm.vcf.gz"
     output:
-        clean="{work_dir}/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
+        clean="data/work/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
-        vcf=temp("{work_dir}/{tumor}/strelka2/temp.h.vcf.gz")
+        vcf=temp("data/work/{tumor}/strelka2/temp.h.vcf.gz")
     shell:
         """
         bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
         bcftools index {params.vcf}
 
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT="*"' -R {params.regions} {params.vcf} | \
+        bcftools annotate --set-id '%CHROM\_%POS\_%REF\_%ALT' | \
+        bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule strelka2_somatic_final:
     input:
-        "data/work/{config['resources']['targets_key']}/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
+        "data/work/{tumor}/strelka2/somatic.vcf.gz",
+        "data/work/{tumor}/strelka2/somatic.norm.clean.vcf.gz"
     output:
-        "data/final/{tumor}/{tumor}.strelka2.somatic.vcf.gz"
+        "data/final/{tumor}/{tumor}.strelka2.somatic.bcf",
+        "data/final/{tumor}/{tumor}.strelka2.somatic.final.bcf"
     shell:
         """
-        bcftools view -W=tbi -Oz -o {output} {input}
+        bcftools view -W=csi -Ob -o {output[0]} {input[0]}
+        bcftools view -W=csi -Ob -o {output[1]} {input[1]}
         """

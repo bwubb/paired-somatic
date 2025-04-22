@@ -194,6 +194,7 @@
 ##contig=<ID=KI270392.1,length=971>
 ##contig=<ID=KI270394.1,length=970>
 ##FILTER=<ID=PASS,Description="Passed filter methods">
-##FILTER=<ID=REJECT,Description="Failed filter methods">
+##FILTER=<ID=FAIL,Description="Failed filter methods">
 ##INFO=<ID=VARDICT,Number=.,Type=String,Description="VarDict filter results">
+##INFO=<ID=CATEGORY,Number=.,Type=String,Description="Variant Category, eg. Germline or Somatic">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO

@@ -12,21 +12,6 @@ def get_args():
     argv=p.parse_args()
     return vars(argv)
 
-def preprocess_vcf(file):
-    lines=[]
-    with open(file,'r') as f:
-        for line in f:
-            if not line.startswith('#'):
-                parts=line.split('\t')
-                parts[6]=parts[6].replace(',',';')
-                lines.append('\t'.join(parts))
-            else:
-                lines.append(line)
-    temp_file=file.replace('.out','.preprocessed.vcf')
-    with open(temp_file,'w') as f:
-        f.writelines(lines)
-    return temp_file
-
 def process_vcf(file):
     filters=["RefReadPos","RefDist3","RefMapQual","RefMMQS","RefAvgRL",
              "SomaticP","VarCount","VarFreq","VarReadPos","VarDist3",
@@ -66,7 +51,6 @@ def process_vcf(file):
 def main(argv=None):
     argv=get_args()if argv is None else argv
     for file in argv['input']:
-        #preprocessed_file=preprocess_vcf(file)
         process_vcf(file)
 
 if __name__=="__main__":

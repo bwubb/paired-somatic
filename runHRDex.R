@@ -11,7 +11,7 @@ p$add_argument('--build', help = 'Genome build; {grch37, grch38, hg19, hg38}.')
 args <- p$parse_args()
 
 #test data
-args<-list(infile="05217-002-DZ1A.call.bed",build="grch38",tumor="05217-002-DZ1A")
+#args<-list(infile="05217-002-DZ1A.call.bed",build="grch38",tumor="05217-002-DZ1A")
 
 # Mapping hg19 to grch37 and hg38 to grch38
 genome_build_map <- list(grch37 = "grch37", grch38 = "grch38", hg19 = "grch37", hg38 = "grch38")

@@ -1,5 +1,6 @@
 
-#lancet.snake
+##Author: Brad Wubbenhorst
+
 import os
 
 ### INIT ###
@@ -24,24 +25,23 @@ def paired_bams(wildcards):
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
 ### SNAKEMAKE ###
+
 localrules: lancet_sample_name
 
-wildcard_constraints:
-    work_dir=f"data/work/{config['resources']['targets_key']}"
+rule run_lancet:
+    input: expand("data/final/{tumor}/{tumor}.lancet.somatic.final.bcf",tumor=PAIRS.keys())
 
 rule processed_lancet:
-    input:
-        expand("data/work/{lib}/{tumor}/lancet/somatic.norm.clean.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+    input: expand("data/work/{tumor}/lancet/somatic.norm.clean.vcf.gz",tumor=PAIRS.keys())
 
 rule unprocessed_lancet:
-    input:
-        expand("data/work/{lib}/{tumor}/lancet/somatic.vcf.gz",lib=config['resources']['targets_key'],tumor=PAIRS.keys())
+    input: expand("data/work/{tumor}/lancet/somatic.vcf.gz",tumor=PAIRS.keys())
 
-rule run_lancet:
+rule lancet_main:
     input:
         unpack(paired_bams)
     output:
-        "{work_dir}/{tumor}/lancet/somatic.vcf.gz"
+        "data/work/{tumor}/lancet/somatic.vcf.gz"
     params:
         ref=config['reference']['fasta'],
         bed=config['resources']['targets_bed']
@@ -51,13 +51,12 @@ rule run_lancet:
         """
         lancet --tumor {input.tumor} --normal {input.normal} --ref {params.ref} --bed {params.bed} --num-threads {threads} | bcftools view -W=tbi -Oz -o {output}
         """
-        ##Reheader?
 
 rule lancet_somatic_normalized:
     input:
-        "{work_dir}/{tumor}/lancet/somatic.vcf.gz"
+        "data/work/{tumor}/lancet/somatic.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/lancet/somatic.norm.vcf.gz"
+        norm="data/work/{tumor}/lancet/somatic.norm.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -67,7 +66,7 @@ rule lancet_somatic_normalized:
 
 rule lancet_sample_name:
     output:
-        "{work_dir}/{tumor}/lancet/sample.name"
+        "data/work/{tumor}/lancet/sample.name"
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -78,29 +77,34 @@ rule lancet_sample_name:
 
 rule lancet_somatic_clean:
     input:
-        name="{work_dir}/{tumor}/lancet/sample.name",
-        vcf="{work_dir}/{tumor}/lancet/somatic.norm.vcf.gz"
+        name="data/work/{tumor}/lancet/sample.name",
+        vcf="data/work/{tumor}/lancet/somatic.norm.vcf.gz"
     output:
-        clean="{work_dir}/{tumor}/lancet/somatic.norm.clean.vcf.gz"
+        clean="data/work/{tumor}/lancet/somatic.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
-        vcf=temp("{work_dir}/{tumor}/lancet/temp.h.vcf.gz")
+        vcf=temp("data/work/{tumor}/lancet/temp.h.vcf.gz")
     shell:
         """
         bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
         bcftools index {params.vcf}
 
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT="*"' -R {params.regions} {params.vcf} | \
+        bcftools annotate --set-id '%CHROM\_%POS\_%REF\_%ALT' | \
+        bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule lancet_somatic_final:
     input:
-        "data/work/{config['resources']['targets_key']}/{tumor}/lancet/somatic.norm.clean.vcf.gz"
+        "data/work/{tumor}/lancet/somatic.vcf.gz",
+        "data/work/{tumor}/lancet/somatic.norm.clean.vcf.gz"
     output:
-        "data/final/{tumor}/{tumor}.lancet.somatic.vcf.gz"
+        "data/final/{tumor}/{tumor}.lancet.somatic.bcf",
+        "data/final/{tumor}/{tumor}.lancet.somatic.final.bcf"
     shell:
         """
-        bcftools view -W=tbi -Oz -o {output} {input}
+        bcftools view -W=csi -Ob -o {output[0]} {input[0]}
+        bcftools view -W=csi -Ob -o {output[1]} {input[1]}
         """

@@ -1,3 +1,5 @@
+##Author: Brad Wubbenhorst
+
 import os
 
 ### INIT ###
@@ -23,29 +25,29 @@ def paired_bams(wildcards):
 
 ### SNAKEMAKE ###
 
-wildcard_constraints:
-    work_dir=f"data/work/{config['resources']['targets_key']}"
+rule run_mutect2:
+    input: expand("data/final/{tumor}/{tumor}.mutect2.somatic.final.bcf",tumor=PAIRS.keys())
 
 rule filter_applied_mutect2:
-    input: expand("data/work/{targets}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+    input: expand("data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz",tumor=PAIRS.keys())
 
 rule unprocessed_mutect2:
-    input: expand("data/work/{targets}/{tumor}/mutect2/somatic.vcf.gz",targets=config['resources']['targets_key'],tumor=PAIRS.keys())
+    input: expand("data/work/{tumor}/mutect2/somatic.vcf.gz",tumor=PAIRS.keys())
 
+rule vep_mutect2:
+    input: expand("data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vep.vcf",tumor=PAIRS.keys())
 #Attempting the pon_db is a waste of time.
 #Its takes FOREVER, a lot of disk space, and then doesn't work
 
-#--genotype-germline-sites
-
-rule run_mutect2:
+rule mutect2_main:
     input:
         unpack(paired_bams)
-    output:#--bamOutput {output.bam}
-        raw="{work_dir}/{tumor}/mutect2/somatic.vcf.gz",
-        snps="{work_dir}/{tumor}/mutect2/somatic.snps.vcf.gz",
-        indels="{work_dir}/{tumor}/mutect2/somatic.indels.vcf.gz",
-        stats="{work_dir}/{tumor}/mutect2/somatic.vcf.gz.stats",
-        f1r2="{work_dir}/{tumor}/mutect2/f1r2.tar.gz"
+    output:
+        raw="data/work/{tumor}/mutect2/somatic.vcf.gz",
+        snps="data/work/{tumor}/mutect2/somatic.snps.vcf.gz",
+        indels="data/work/{tumor}/mutect2/somatic.indels.vcf.gz",
+        stats="data/work/{tumor}/mutect2/somatic.vcf.gz.stats",
+        f1r2="data/work/{tumor}/mutect2/f1r2.tar.gz"
     params:
         ref=config['reference']['fasta'],
         intervals=config['resources']['targets_intervals'],
@@ -54,19 +56,18 @@ rule run_mutect2:
         memory='16g'
     shell:
         """
-        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2} --genotype-germline-sites true --genotype-pon-sites true
+        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2}
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -L {params.intervals} -select-type SNP
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -L {params.intervals} -select-type INDEL
         """
-#If GRCh38 consider adding --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter, see documentation for details
-#        -germline-resource af-only-gnomad.vcf \
-#        -pon panel_of_normals.vcf   \
+#--genotype-germline-sites true
+#--genotype-pon-sites true
 
 rule mutect2_LearnReadOrientationModel:
     input:
-        "{work_dir}/{tumor}/mutect2/f1r2.tar.gz"
+        "data/work/{tumor}/mutect2/f1r2.tar.gz"
     output:
-        "{work_dir}/{tumor}/mutect2/read-orientation-model.tar.gz"
+        "data/work/{tumor}/mutect2/read-orientation-model.tar.gz"
     shell:
         """
         gatk LearnReadOrientationModel -I {input} -O {output}
@@ -76,7 +77,7 @@ rule mutect2_GetPileupSummaries:
     input:
         unpack(paired_bams)
     output:
-        pileup="{work_dir}/{tumor}/mutect2/getpileupsummaries.table"
+        pileup="data/work/{tumor}/mutect2/getpileupsummaries.table"
     params:
         allele=config['resources']['common_snps'],
         intervals=config['resources']['targets_intervals']
@@ -87,10 +88,10 @@ rule mutect2_GetPileupSummaries:
 
 rule mutect2_CalculateContamination:
     input:
-        pileup="{work_dir}/{tumor}/mutect2/getpileupsummaries.table"
+        pileup="data/work/{tumor}/mutect2/getpileupsummaries.table"
     output:
-        contamination="{work_dir}/{tumor}/mutect2/calculatecontamination.table",
-        segments="{work_dir}/{tumor}/mutect2/segments.table"
+        contamination="data/work/{tumor}/mutect2/calculatecontamination.table",
+        segments="data/work/{tumor}/mutect2/segments.table"
     shell:
         """
         gatk CalculateContamination -I {input.pileup} -tumor-segmentation {output.segments} -O {output.contamination}
@@ -98,13 +99,13 @@ rule mutect2_CalculateContamination:
 
 rule mutect2_FilterMutectCalls:
     input:
-        vcf="{work_dir}/{tumor}/mutect2/somatic.vcf.gz",
-        stats="{work_dir}/{tumor}/mutect2/somatic.vcf.gz.stats",
-        contamination="{work_dir}/{tumor}/mutect2/calculatecontamination.table",
-        segments="{work_dir}/{tumor}/mutect2/segments.table",
-        model="{work_dir}/{tumor}/mutect2/read-orientation-model.tar.gz"
+        vcf="data/work/{tumor}/mutect2/somatic.vcf.gz",
+        stats="data/work/{tumor}/mutect2/somatic.vcf.gz.stats",
+        contamination="data/work/{tumor}/mutect2/calculatecontamination.table",
+        segments="data/work/{tumor}/mutect2/segments.table",
+        model="data/work/{tumor}/mutect2/read-orientation-model.tar.gz"
     output:
-        "{work_dir}/{tumor}/mutect2/somatic.filtered.vcf.gz"
+        "data/work/{tumor}/mutect2/somatic.filtered.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -114,9 +115,9 @@ rule mutect2_FilterMutectCalls:
 
 rule mutect2_somatic_normalized:
     input:
-        "{work_dir}/{tumor}/mutect2/somatic.filtered.vcf.gz"
+        "data/work/{tumor}/mutect2/somatic.filtered.vcf.gz"
     output:
-        norm="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
+        norm="data/work/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
     params:
         ref=config['reference']['fasta']
     shell:
@@ -126,7 +127,7 @@ rule mutect2_somatic_normalized:
 
 rule mutect2_sample_name:
     output:
-        "{work_dir}/{tumor}/mutect2/sample.name"
+        "data/work/{tumor}/mutect2/sample.name"
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -137,29 +138,68 @@ rule mutect2_sample_name:
 
 rule mutect2_somatic_clean:
     input:
-        name="{work_dir}/{tumor}/mutect2/sample.name",
-        vcf="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
+        name="data/work/{tumor}/mutect2/sample.name",
+        vcf="data/work/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
     output:
-        clean="{work_dir}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+        clean="data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
-        vcf=temp("{work_dir}/{tumor}/mutect2/temp.h.vcf.gz")
+        vcf=temp("data/work/{tumor}/mutect2/temp.h.vcf.gz")
     shell:
         """
         bcftools reheader -f {params.fai} -s {input.name} -o {params.vcf} {input.vcf}
         bcftools index {params.vcf}
 
-        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT~\"*\"' -R {params.regions} {params.vcf} | bcftools sort -W=tbi -Oz -o {output.clean}
+        bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT="*"' -R {params.regions} {params.vcf} | \
+        bcftools annotate --set-id '%CHROM\_%POS\_%REF\_%ALT' | \
+        bcftools sort -W=tbi -Oz -o {output.clean}
         """
 
 rule mutect2_somatic_final:
     input:
-        "data/work/{config['resources']['targets_key']}/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+        "data/work/{tumor}/mutect2/somatic.vcf.gz",
+        "data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
     output:
-        "data/final/{tumor}/{tumor}.mutect2.somatic.vcf.gz"
+        "data/final/{tumor}/{tumor}.mutect2.somatic.bcf",
+        "data/final/{tumor}/{tumor}.mutect2.somatic.final.bcf"
     shell:
         """
-        bcftools view -W=tbi -Oz -o {output} {input}
+        bcftools view -W=csi -Ob -o {output[0]} {input[0]}
+        bcftools view -W=csi -Ob -o {output[1]} {input[1]}
         """
+
+rule mutect2_somatic_vep:
+    input:
+        "data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+    output:
+        "data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vep.vcf"
+    shell:
+        """
+        singularity run -H $PWD:/home \
+        --bind /home/bwubb/resources:/opt/vep/resources \
+        --bind /home/bwubb/.vep:/opt/vep/.vep \
+        /appl/containers/vep112.sif vep \
+        --dir /opt/vep/.vep \
+        -i {input} \
+        -o {output} \
+        --force_overwrite \
+        --offline \
+        --cache \
+        --format vcf \
+        --vcf --everything --canonical \
+        --assembly GRCh38 \
+        --species homo_sapiens \
+        --fasta /opt/vep/resources/Genomes/Human/GRCh38/Homo_sapiens.GRCh38.dna.primary_assembly.fa \
+        --vcf_info_field ANN \
+        --plugin NMD \
+        --plugin REVEL,/opt/vep/.vep/revel/revel_grch38.tsv.gz \
+        --plugin SpliceAI,snv=/opt/vep/.vep/spliceai/spliceai_scores.raw.snv.hg38.vcf.gz,indel=/opt/vep/.vep/spliceai/spliceai_scores.raw.indel.hg38.vcf.gz \
+        --plugin gnomADc,/opt/vep/.vep/gnomAD/gnomad.v3.1.1.hg38.genomes.gz \
+        --plugin UTRAnnotator,/opt/vep/.vep/Plugins/UTRannotator/uORF_5UTR_GRCh38_PUBLIC.txt \
+        --custom /opt/vep/.vep/clinvar/vcf_GRCh38/clinvar_20250106.autogvp.vcf.gz,ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN,AutoGVP \
+        --plugin AlphaMissense,file=/opt/vep/.vep/alphamissense/AlphaMissense_GRCh38.tsv.gz \
+        --plugin MaveDB,file=/opt/vep/.vep/mavedb/MaveDB_variants.tsv.gz
+        """
+        

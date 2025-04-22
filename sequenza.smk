@@ -49,7 +49,7 @@ rule sequenza_bam2seqz_byChr:
         gc=config['reference']['gc_wiggle'],
         chr=lambda wildcards: wildcards.chr.lstrip('chr')
     shell:
-        "sequenza-utils bam2seqz -F {params.ref} -gc {params.gc} -n {input.normal} -t {input.tumor} -C {params.chr} | gzip > {output}"
+        "sequenza-utils bam2seqz -F {params.ref} -gc {params.gc} -n {input.normal} -t {input.tumor} -C {params.chr} | gzip -c > {output}"
 #CHECK IF THE FILE IS EMPTY
 
 rule sequenza_bin_byChr:

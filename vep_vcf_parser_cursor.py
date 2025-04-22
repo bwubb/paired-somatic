@@ -4,6 +4,7 @@ import csv
 import argparse
 from collections import defaultdict
 import logging
+import re
 
 class SampleAnnot:
     @staticmethod
@@ -77,42 +78,98 @@ class TumorNormalAnnot:
     def __tumor_normal__(record_calls,tumor_id):
         x=defaultdict(str)
         for c in record_calls:
-            if c.sample.lower()=='tumor' or c.sample==tumor_id:
-                x['Tumor.ID']=c.sample
-                x['Tumor.Depth']=f"{c.data.get('DP','.')}"
-                x['Tumor.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
-                x['Tumor.AltDepth']=f"{c.data.get('AD','.')}"
-                if type(c.data.get('AF',['.']))==list:
-                    x['Tumor.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
+            #Set prefix based on whether this is tumor or normal
+            prefix='Tumor.' if c.sample.lower()=='tumor' or c.sample==tumor_id else 'Normal.'
+
+            #Basic sample information
+            x[f'{prefix}ID']=c.sample
+            x[f'{prefix}Depth']=f"{c.data.get('DP','.')}"
+            x[f'{prefix}Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
+
+            #First try to use AD if available
+            if 'AD' in c.data and c.data.get('AD') not in [None,'.',['.'],[],['None']]:
+                ad=c.data.get('AD')
+                if isinstance(ad,list) and len(ad)>1:
+                    x[f'{prefix}AltDepth']=f"{ad[1]}"
                 else:
-                    x['Tumor.AltFrac']=f"{c.data['AF']:.3f}"
-                if x['Tumor.AltDepth']=='.' and x['Tumor.AltFrac']!='.':
-                    x['Tumor.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
-                if x['Tumor.Zyg']=='.;.':
-                    if 0.0<float(x['Tumor.AltFrac'])<1.0:
-                        x['Tumor.Zyg']='HET'
-                    elif float(x['Tumor.AltFrac'])==1.0:
-                        x['Tumor.Zyg']='HOM_ALT'
-                    else:
-                        x['Tumor.Zyg']='HOM_REF'
+                    x[f'{prefix}AltDepth']=f"{ad}"
+
+            #Then try SAOBS/SROBS from VLR
+            elif 'SAOBS' in c.data and 'SROBS' in c.data:
+                try:
+                    #Extract counts from SAOBS (alt allele) and SROBS (ref allele)
+                    saobs=c.data.get('SAOBS')
+                    srobs=c.data.get('SROBS')
+                    if isinstance(saobs,list) and saobs: saobs=saobs[0]
+                    if isinstance(srobs,list) and srobs: srobs=srobs[0]
+
+                    #Sum all numeric prefixes in SAOBS and SROBS
+                    alt_count=0
+                    ref_count=0
+                    for match in re.finditer(r'(\d+)[A-Za-z]',saobs):
+                        alt_count+=int(match.group(1))
+                    for match in re.finditer(r'(\d+)[A-Za-z]',srobs):
+                        ref_count+=int(match.group(1))
+
+                    x[f'{prefix}AltDepth']=f"{alt_count}"
+
+                    #Calculate AltFrac from SAOBS/SROBS counts
+                    total_depth=alt_count+ref_count
+                    if total_depth>0:
+                        x[f'{prefix}AltFrac']=f"{alt_count/total_depth:.3f}"
+                except (AttributeError,IndexError,ValueError,TypeError):
+                    x[f'{prefix}AltDepth']='.'
             else:
-                x['Normal.ID']=c.sample
-                x['Normal.Depth']=f"{c.data.get('DP','.')}"
-                x['Normal.Zyg']=f"{c.data.get('GT','./.').replace('/',';')}"
-                x['Normal.AltDepth']=f"{c.data.get('AD','.')}"
-                if type(c.data.get('AF',['.']))==list:
-                    x['Normal.AltFrac']=f"{c.data.get('AF',['.'])[0]:.3f}"
-                else:
-                    x['Normal.AltFrac']=f"{c.data['AF']:.3f}"
-                if x['Normal.AltDepth']=='.' and x['Normal.AltFrac']!='.':
-                    x['Normal.AltDepth']=f"{int(c.data.get('DP','0'))*float(c.data.get('AF',['0.0'])[0]):.0f}"
-                if x['Normal.Zyg']=='.;.':
-                    if 0.0<float(x['Normal.AltFrac'])<1.0:
-                        x['Normal.Zyg']='HET'
-                    elif float(x['Normal.AltFrac'])==1.0:
-                        x['Normal.Zyg']='HOM_ALT'
+                x[f'{prefix}AltDepth']='.'
+
+            #Handle allele fraction if not already set from SAOBS/SROBS
+            if f'{prefix}AltFrac' not in x or x[f'{prefix}AltFrac']=='':
+                try:
+                    if type(c.data.get('AF',['.']))==list:
+                        af_value=c.data.get('AF',['.'])[0]
+                        x[f'{prefix}AltFrac']=f"{float(af_value):.3f}" if af_value!='.' else '.'
                     else:
-                        x['Normal.Zyg']='HOM_REF'
+                        af_value=c.data.get('AF','.')
+                        x[f'{prefix}AltFrac']=f"{float(af_value):.3f}" if af_value!='.' else '.'
+                except (ValueError,TypeError,IndexError):
+                    x[f'{prefix}AltFrac']='.'
+
+            #Calculate AltFrac from AltDepth/Depth if not already set
+            if (x[f'{prefix}AltFrac']=='.' or x[f'{prefix}AltFrac']=='0.000') and x[f'{prefix}AltDepth']!='.' and x[f'{prefix}Depth']!='.':
+                try:
+                    alt_depth=float(x[f'{prefix}AltDepth'])
+                    depth=float(x[f'{prefix}Depth'])
+                    if depth>0 and alt_depth>0:
+                        x[f'{prefix}AltFrac']=f"{alt_depth/depth:.3f}"
+                except (ValueError,TypeError):
+                    pass
+
+            #Calculate AltDepth from AF*DP if needed
+            if x[f'{prefix}AltDepth']=='.' and x[f'{prefix}AltFrac']!='.' and x[f'{prefix}Depth']!='.':
+                try:
+                    x[f'{prefix}AltDepth']=f"{int(float(x[f'{prefix}Depth'])*float(x[f'{prefix}AltFrac']))}"
+                except (ValueError,TypeError):
+                    pass
+
+            #Handle zygosity
+            #Seems weird and overly complicated...
+            if x[f'{prefix}Zyg']=='.;.':
+                try:
+                    if x[f'{prefix}AltFrac']!='.':
+                        alt_frac=float(x[f'{prefix}AltFrac'])
+                        if 0.0<alt_frac<1.0:
+                            x[f'{prefix}Zyg']='HET'
+                        elif alt_frac==1.0:
+                            x[f'{prefix}Zyg']='HOM_ALT'
+                        else:
+                            x[f'{prefix}Zyg']='HOM_REF'
+                    else:
+                        x[f'{prefix}Zyg']='.'
+                except (ValueError,TypeError):
+                    pass
+            else:
+                x[f'{prefix}Zyg']={'0;0':'HOM_REF','0;1':'HET_ALT','1;0':'HET_ALT','1;1':'HOM_ALT'}.get(x[f'{prefix}Zyg'],x[f'{prefix}Zyg'])
+
         return [x]
 
 class GnomadAnnot:
@@ -142,10 +199,17 @@ class ClinvarAnnot:
             ('ClinVar','ClinVar'),
             ('ClinVar.SIG','ClinVar_CLNSIG'),
             ('ClinVar.REVSTAT','ClinVar_CLNREVSTAT'),
-            ('ClinVar.DN','ClinVar_CLNDN')
+            ('ClinVar.DN','ClinVar_CLNDN'),
+            ('AutoGVP','ClinVar_AutoGVP')
         ]
         for field,csq_key in fields:
-            self.fields[field]=CSQ[csq_key]
+            self.fields[field]=CSQ.get(csq_key,'.')
+
+class AutoGVPAnnot:
+    def autogvp(self,CSQ):
+        fields=[('AutoGVP','ClinVar_AutoGVP')]
+        for field,csq_key in fields:
+            self.fields[field]=CSQ.get('AutoGVP','.')
 
 class SpliceAIAnnot:
     def splice_ai(self,CSQ):
@@ -217,48 +281,81 @@ class BasicInfoAnnot:
 class LofLevelAnnot:
     def lof_level(self):
         def check_level_one():
-            def condition_one(cv,cr):
-                return ('pathogenic' in cv.lower() and 'conflicting' not in cv.lower() and 'no_assertion' not in cr.lower())
-                #Conflicting_interpretations is still making it in?
+            def condition_zero(bt):
+                return 'protein_coding' in bt.lower()
+            def condition_one(autogvp):#AutoGVP
+                return ('pathogenic' in autogvp.lower())
             def condition_two(vc,en):
                 if '|' not in en:
                     return False
                 i,j=en.split('|')
-                return ('frameshift' in vc.lower() or 'stop_gained' in vc.lower()) and i!=j
-            #We are very likely moving SpliceAI values out of Group1
-            def condition_three(ai_vals):
-                return any(v>0.5 for v in ai_vals)
-            def format_spliceai(vals):
-                return [0.0 if x in ['.',''] else float(x) for x in vals]
+                return ('frameshift' in vc or 'stop_gained' in vc) and i!=j
+            def condition_three(af):
+                if af in ['.','']:
+                    return True
+                return float(af)<=0.01
+            def condition_four(vc,hgvs):
+                p=re.compile(r'^c\.\d+([-+][12])([ACGT>]+|del|ins|dup)?$')
+                if 'splice' in vc:
+                    return bool(p.fullmatch(hgvs))
+                return False
 
-            return (condition_one(self.fields['ClinVar.SIG'],self.fields['ClinVar.REVSTAT']) or condition_two(self.fields['Variant.Consequence'],self.fields['EXON']))
-                   #condition_three(format_spliceai([self.fields[v] for v in ['SpliceAI.DS_AG','SpliceAI.DS_AL','SpliceAI.DS_DG','SpliceAI.DS_DL']])))
+            return (condition_zero(self.fields['Bio.type']) and
+                   (condition_one(self.fields['AutoGVP']) or
+                    (condition_two(self.fields['Variant.Consequence'],self.fields['EXON']) and
+                     condition_three(self.fields['gnomAD.MAX_AF'])) or
+                    (condition_four(self.fields['Variant.Consequence'],self.fields['HGVSc']) and
+                     condition_three(self.fields['gnomAD.MAX_AF']))))
 
-        #group2 needs work
         def check_level_two():
-            def condition_one(cv,am):
-                return 'benign' not in cv.lower() and 'benign' not in am.lower()
+            def condition_zero(bt):
+                return 'protein_coding' in bt.lower()
+            def condition_one(autogvp):
+                #May need to include AM not benign.
+                return (autogvp.lower() in ['','.','uncertain_significance'])
             def condition_two(vc):
-                return any(x in vc.lower() for x in ['protein_altering','missense','inframe','start_lost','frameshift'])
-            def condition_three(ad):
-                return ad in ['.',''] or float(ad)<0.01
-            def condition_four(r):
-                return r not in ['.',''] and float(r)>0.5
-            return (condition_one(self.fields['ClinVar.SIG'],self.fields['AM.Class']) and
-                   condition_two(self.fields['Variant.Consequence']))
-                   #condition_four(self.fields['REVEL']))
-                   #I just dont understand how to code REVEL right now.
+                return any(x in vc for x in ['protein_altering','missense','inframe','start_lost','frameshift','splice'])
+            def condition_three(revel):
+                if revel in ['.','']:
+                    return True
+                return float(revel)>0.5
+            def condition_four(vc,ai):
+                if 'splice' in vc:
+                    return any(float(i)>0.5 for i in ai if i not in ['','.'])
+                return True
+            def condition_five(vc,hgvsp):
+                if 'inframe' not in vc:
+                    return True
+                # Match Gln/Glu deletions/duplications
+                p=re.compile(r'p\.[GQ]l[nu][0-9]+(?:_[GQ]l[nu][0-9]+)?(?:del|dup)')
+                return not bool(p.match(hgvsp))
 
-        if check_level_one():
-            self.fields['Variant.LoF_level']='1'
+            return (condition_zero(self.fields['Bio.type']) and
+                   condition_one(self.fields['AutoGVP']) and
+                   condition_two(self.fields['Variant.Consequence']) and
+                   condition_three(self.fields['REVEL']) and
+                   condition_four(self.fields['Variant.Consequence'],[self.fields['SpliceAI.DS_AG'],self.fields['SpliceAI.DS_AL'],self.fields['SpliceAI.DS_DG'],self.fields['SpliceAI.DS_DL']]) and
+                   condition_five(self.fields['Variant.Consequence'],self.fields['HGVSp']))
+
+        def check_level_four():
+            return ('benign' in self.fields['AutoGVP'].lower() or
+                   'benign' in self.fields['ClinVar.SIG'].lower() or
+                   'protein_coding' not in self.fields['Bio.type'].lower())
+
+        if check_level_four():
+            self.fields['Variant.LoF_level']='4'
+        elif check_level_one():
+            if any(x in self.fields['Variant.Consequence'] for x in ["stream","UTR","intron"]):
+                self.fields['Variant.LoF_level']='2'
+                #Special case for stream, UTR, intron that are "Pathogenic"
+            else:
+                self.fields['Variant.LoF_level']='1'
         elif check_level_two():
             self.fields['Variant.LoF_level']='2'
         else:
             self.fields['Variant.LoF_level']='3'
-        #Need lvl 4 for benign
         #Need to know onco genes vs tumor suppressors from OncoKB, but this is a bad thing to have to run.
         #I can make a simple lookup table
-
 
 
 class VEPannotation(BasicInfoAnnot,GnomadAnnot,ClinvarAnnot,SpliceAIAnnot,
@@ -314,7 +411,7 @@ class VEPannotation(BasicInfoAnnot,GnomadAnnot,ClinvarAnnot,SpliceAIAnnot,
 
 #END CLASS
 
-def report_header(tumor_normal=False):
+def report_header(tumor_normal=False,no_caller=False):
     # Base headers
     if tumor_normal:
         header=['Tumor.ID','Normal.ID','Chr','Start','REF','ALT','FILTER','ID']
@@ -331,6 +428,7 @@ def report_header(tumor_normal=False):
             'REVEL',  # SNV prediction
             'gnomAD.AF','gnomAD.AFR','gnomAD.AMR','gnomAD.ASJ','gnomAD.EAS','gnomAD.FIN','gnomAD.NFE','gnomAD.OTH','gnomAD.SAS','gnomAD.MAX_AF','gnomAD.MAX_POPS',  # gnomAD
             'ClinVar','ClinVar.SIG','ClinVar.REVSTAT','ClinVar.DN',  # ClinVar
+            'AutoGVP',  # AutoGVP
             'AM.class','AM.pathogenicity',  # AlphaMissense
             'MaveDB.nt','MaveDB.pro','MaveDB.score','MaveDB.urn']  # MaveDB
             #'LOFTEE.lof','LOFTEE.filter','LOFTEE.flags','LOFTEE.info',  # LOFTEE doesnt work!
@@ -342,8 +440,8 @@ def report_header(tumor_normal=False):
     else:
         header+=['Sample.Zyg','Sample.Depth','Sample.AltDepth','Sample.AltFrac']
 
-    # Tumor/Normal specific headers
-    if tumor_normal:
+    # Tumor/Normal specific headers - only include if no_caller is False
+    if tumor_normal and not no_caller:
         header+=['LANCET','MUTECT2','STRELKA2','VARDICT','VARSCAN2']
 
     return header
@@ -381,7 +479,7 @@ def phred_to_probability(phred_score):
         return "NA"
     elif phred_score[0]=='inf' or phred_score[0]==float('inf'):
         return "0.0"
-    return f"{10**(-float(phred_score[0])/10):.3e}"
+    return f"{10**(-float(phred_score[0])/10):.5f}"
 
 def get_args(argv):
     p=argparse.ArgumentParser()
@@ -389,6 +487,8 @@ def get_args(argv):
     p.add_argument('-o','--output_csv',help='Output: csv file trimmed for specific design.')
     p.add_argument('-g','--gene_list',help='Optional list of genes to include only.')
     p.add_argument('-r','--bed_region',help='Bed file format to subset regions.')
+    p.add_argument('-N','--no-caller',action='store_true',help='Do not include caller information.')
+    p.add_argument('-R','--include-ref',action='store_true',help='Include RefCall in output.')
     p.add_argument('-V','--include_vlr',action='store_true',help='Include transformed VLR probability values.')
     p.add_argument('-m','--mode',default='cohort',help='Run mode determines how calls are reported. Single should be "single,{sample.id}. Tumor/Normal should be "tumor_normal,{tumor.id},{normal.id}" OR use "no_sample"')
     return p.parse_args(argv)
@@ -429,7 +529,7 @@ def main(argv=None):
     else:
         raise ValueError(f"Unsupported mode: {args.mode}")
 
-    header=report_header(tumor_normal)
+    header=report_header(tumor_normal,args.no_caller)
 
     if args.mode=='no_sample':
         for x in ['Sample.ID','Sample.Zyg','Sample.Depth','Sample.AltDepth','Sample.AltFrac']:
@@ -439,6 +539,12 @@ def main(argv=None):
     if args.include_vlr:
         for x in ['PROB_SOMATIC_TUMOR','PROB_GERMLINE','PROB_SOMATIC_NORMAL','PROB_FFPE_ARTIFACT','PROB_ARTIFACT','PROB_ABSENT']:
             header.append(x)
+    
+    if args.include_ref:
+        ref_call=True
+    else:
+        ref_call=False
+
     #test data
     #VcfReader=vcfpy.Reader.from_path('data/vcf/FLCN/PMBB-Release-2020-2.0_genetic_exome_FLCN_NF.norm.vep.vcf.gz')
     VcfReader=vcfpy.Reader.from_path(f'{args.input_vcf}')
@@ -455,7 +561,7 @@ def main(argv=None):
 
             if 'ANN' not in record.INFO:
                 continue
-            if 'RefCall' in record.FILTER:
+            if 'RefCall' in record.FILTER and not ref_call:
                 continue
 
             if tumor_normal:
@@ -482,6 +588,7 @@ def main(argv=None):
                     vep_data.splice_ai(csq_dict)
                     vep_data.gnomAD(csq_dict)
                     vep_data.clinvar(csq_dict)
+                    #vep_data.autogvp(csq_dict)
                     vep_data.alphamissense(csq_dict)
                     vep_data.mavedb(csq_dict)
                     vep_data.lof_level()

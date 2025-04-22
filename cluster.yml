@@ -5,30 +5,30 @@
     'eo': 'logs/cluster/{wildcards.tumor}/{rule}.e'
     'oo': 'logs/cluster/{wildcards.tumor}/{rule}.o'
     'R': '"span [hosts=1] rusage [mem=6144]"'
-raw_mpileup:
-    'J': '{wildcards.sample}_{rule}'
-    'eo': 'logs/cluster/{wildcards.sample}/{rule}.e'
-    'oo': 'logs/cluster/{wildcards.sample}/{rule}.o'
-run_Mutect2:
+mutect2_main:
     'M': '18432'
     'n': '4'
     'R': '"span [hosts=1] rusage [mem=18432]"'
-run_VarDictJava:
+vardict_paired_main:
     'M': '18432'
     'n': '4'
     'R': '"span [hosts=1] rusage [mem=18432]"'
-run_VarScan2:
+varscan2_main:
     'M': '18432'
     'R': '"span [hosts=1] rusage [mem=18432]"'
-run_Manta:
-    'M': '18432'
-    'n': '4'
-    'R': '"span [hosts=1] rusage [mem=18432]"'
-run_Strelka2:
+manta_main:
     'M': '18432'
     'n': '4'
     'R': '"span [hosts=1] rusage [mem=18432]"'
-run_lancet:
+vardict_unpaired_main:
+    'M': '18432'
+    'n': '4'
+    'R': '"span [hosts=1] rusage [mem=18432]"'
+strelka2_main:
+    'M': '18432'
+    'n': '4'
+    'R': '"span [hosts=1] rusage [mem=18432]"'
+lancet_main:
     'M': '32768'
     'n': '4'
     'R': '"span [hosts=1] rusage [mem=32768]"'

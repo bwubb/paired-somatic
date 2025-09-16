@@ -11,7 +11,7 @@ parser$add_argument('--threads', type='integer', default=8, help='Number of thre
 parser$add_argument('--min-counts', type='integer', default=10, help='Minimum read counts')
 parser$add_argument('--min-base-qual', type='integer', default=20, help='Minimum base quality')
 parser$add_argument('--min-map-qual', type='integer', default=35, help='Minimum mapping quality')
-parser$add_argument('--ref-fasta', help='Reference FASTA file path', default=NA)
+#parser$add_argument('--ref-fasta', help='Reference FASTA file path', default=NA)
 
 args <- parser$parse_args()
 
@@ -42,6 +42,5 @@ ascat.prepareTargetedSeq(
     chrom_names=c(1:22, "X"),
     min_base_qual=args$min_base_qual,
     min_map_qual=args$min_map_qual,
-    ref.fasta=args$ref_fasta,
     plotQC=TRUE
 )

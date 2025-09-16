@@ -566,12 +566,10 @@ def main(argv=None):
 
             if tumor_normal:
                 tools=['LANCET','MUTECT2','STRELKA2','VARDICT','VARSCAN2']
-                categories=[y for x in tools for y in record.INFO.get("CATEGORY",['NA']) if x in y and record.INFO.get(x,['NA'])==['PASS']]#Im a monster
-                #print(categories)
+                categories=[y for x in tools for y in record.INFO.get("CATEGORY",['NA']) if x in y and record.INFO.get(x,['NA'])==['PASS']]
                 for x in tools:
                     vep_data.fields[x]=record.INFO.get(x,['NA'])[0]
                 vep_data.fields["Variant.Category"]=";".join(categories) if categories else 'NA'
-
 
             if args.include_vlr:
                 for x in VcfReader.header.info_ids():
@@ -579,43 +577,75 @@ def main(argv=None):
                         vep_data.fields[x]=phred_to_probability(record.INFO.get(x,['NA']))
                         #Maybe this goes into class
 
+            #First pass - find any canonical+high impact
+            high_impact=False
+            #Saud had suggest we do high impact even if we don't have a canonical.
+            #It may have required another annotation, I dont recall.
             for csq_i in record.INFO['ANN']:
                 csq_dict=dict(zip(csq_keys,csq_i.split('|')))
                 if csq_dict['SYMBOL']!='' and csq_dict['CANONICAL']=='YES':
-                    #checks
-                    vep_data.info(csq_dict)
-                    vep_data.snv_prediction(csq_dict)
-                    vep_data.splice_ai(csq_dict)
-                    vep_data.gnomAD(csq_dict)
-                    vep_data.clinvar(csq_dict)
-                    #vep_data.autogvp(csq_dict)
-                    vep_data.alphamissense(csq_dict)
-                    vep_data.mavedb(csq_dict)
-                    vep_data.lof_level()
+                    if csq_dict.get('IMPACT','MODIFIER')=='HIGH':
+                        #All this just seems like it should be in a function...
+                        high_impact=True
+                        vep_data.info(csq_dict)
+                        vep_data.snv_prediction(csq_dict)
+                        vep_data.splice_ai(csq_dict)
+                        vep_data.gnomAD(csq_dict)
+                        vep_data.clinvar(csq_dict)
+                        vep_data.alphamissense(csq_dict)
+                        vep_data.mavedb(csq_dict)
+                        vep_data.lof_level()
+                        if tumor_normal:
+                            vep_data.calls[0]['Tumor.ID']=tumor
+                            vep_data.calls[0]['Normal.ID']=normal
+                        if single:
+                            try:
+                                vep_data.calls[0]['Sample.ID']=sample
+                            except IndexError as e:
+                                print(vep_data.print(),vep_data.calls)
+                                print(record.INFO['ANN'])
+                                print(record.calls)
+                                continue
+                        vep_data.fill_values(header)
+                        if gene_filter and vep_data.fields['Gene'] in gene_list:
+                            vep_data.report(writer)
+                        elif region_filter and vep_data.in_region(bed_regions[record.CHROM]):
+                            vep_data.report(writer)
+                        elif not gene_filter and not region_filter:
+                            vep_data.report(writer)
 
-                    #more checks
-                    if tumor_normal:
-                        vep_data.calls[0]['Tumor.ID']=tumor
-                        vep_data.calls[0]['Normal.ID']=normal
-
-                    if single:
-                        try:
-                            vep_data.calls[0]['Sample.ID']=sample
-                        except IndexError as e:
-                            print(vep_data.print(),vep_data.calls)
-                            print(record.INFO['ANN'])
-                            print(record.calls)
-                            continue
-
-                    vep_data.fill_values(header)
-                    if gene_filter and vep_data.fields['Gene'] in gene_list:
-                        vep_data.report(writer)
-                    elif region_filter and vep_data.in_region(bed_regions[record.CHROM]):
-                        vep_data.report(writer)
-                    elif not gene_filter and not region_filter:
-                        vep_data.report(writer)
-                    else:
-                        continue
+            if not high_impact:
+                #Process first canonical for each gene
+                for csq_i in record.INFO['ANN']:
+                    csq_dict=dict(zip(csq_keys,csq_i.split('|')))
+                    if csq_dict['SYMBOL']!='' and csq_dict['CANONICAL']=='YES':
+                        vep_data.info(csq_dict)
+                        vep_data.snv_prediction(csq_dict)
+                        vep_data.splice_ai(csq_dict)
+                        vep_data.gnomAD(csq_dict)
+                        vep_data.clinvar(csq_dict)
+                        vep_data.alphamissense(csq_dict)
+                        vep_data.mavedb(csq_dict)
+                        vep_data.lof_level()
+                        if tumor_normal:
+                            vep_data.calls[0]['Tumor.ID']=tumor
+                            vep_data.calls[0]['Normal.ID']=normal
+                        if single:
+                            try:
+                                vep_data.calls[0]['Sample.ID']=sample
+                            except IndexError as e:
+                                print(vep_data.print(),vep_data.calls)
+                                print(record.INFO['ANN'])
+                                print(record.calls)
+                                continue
+                        vep_data.fill_values(header)
+                        if gene_filter and vep_data.fields['Gene'] in gene_list:
+                            vep_data.report(writer)
+                        elif region_filter and vep_data.in_region(bed_regions[record.CHROM]):
+                            vep_data.report(writer)
+                        elif not gene_filter and not region_filter:
+                            vep_data.report(writer)
+                        break
     print(f"{outfile.name} written.")
 
 if __name__=='__main__':

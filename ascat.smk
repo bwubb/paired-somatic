@@ -8,8 +8,8 @@ with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
 #with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
 #ASCAT has dropped several samples.
 #This probably wont be an issue in the future and should be changed back.
-#We included pairs with germline <30X
-with open('ascat_pair.table','r') as p:
+#We included pairs with germline >30X
+with open('pair.table','r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
 with open(config.get('project',{}).get('bam_table','bams.table'),'r') as b:
@@ -27,10 +27,13 @@ def paired_bams(wildcards):
     normal=PAIRS[wildcards.tumor]
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
+localrules:ASCAT_write_worksheet
+
+#need segments file too for plotting purposes.
 rule ascat_all:
     input:
         expand("data/work/{tumor}/ascat/{tumor}.ascat.annotsv.gene_split.report.csv",tumor=PAIRS.keys()),
-        expand("data/work/{tumor}/ascat/{tumor}.ascat.hrd.txt",tumor=PAIRS.keys())
+        #expand("data/work/{tumor}/ascat/{tumor}.ascat.hrd.txt",tumor=PAIRS.keys())
 
 rule ASCAT_write_worksheet:
     input:
@@ -54,17 +57,16 @@ rule ASCAT_prepareTargetedSeq:
         "data/work/ASCAT/alleleData/Cleaned/loci_chrX.txt"
     params:
         outdir="data/work/ASCAT",
-        alleles="/home/bwubb/projects/021-POSH_FFPE/G1000_allelesAll_hg38/G1000_alleles_hg38_chr",
+        alleles=config['resources']['ascat_alleles'],#"G1000_allelesAll_hg38/G1000_alleles_hg38_chr"
         bed=config['resources']['targets_bed'],
         allelecounter="/home/bwubb/software/alleleCount/bin/alleleCounter",
         min_counts=10,
         min_base_qual=20,
-        min_map_qual=35,
-        ref_fasta=config['reference']['fasta']
+        min_map_qual=35
     threads:
         8
     shell:
-        "Rscript ASCAT_prepareTargetedSeq.R --worksheet {input.worksheet} --outdir {params.outdir} --alleles-prefix {params.alleles} --bed {params.bed} --allelecounter {params.allelecounter} --threads {threads} --min-counts {params.min_counts} --min-base-qual {params.min_base_qual} --min-map-qual {params.min_map_qual} --ref-fasta {params.ref_fasta}"
+        "Rscript ASCAT_prepareTargetedSeq.R --worksheet {input.worksheet} --outdir {params.outdir} --alleles-prefix {params.alleles} --bed {params.bed} --allelecounter {params.allelecounter} --threads {threads} --min-counts {params.min_counts} --min-base-qual {params.min_base_qual} --min-map-qual {params.min_map_qual}"
 
 
 rule ASCAT_prepareHTS:
@@ -100,7 +102,7 @@ rule ASCAT_runAscat:
         rdata="data/work/{tumor}/ascat/ASCAT_objects.Rdata"
     params:
         outdir="data/work/{tumor}/ascat",
-        gc_file=config["resources"]["gc_file"]#gc_file="GC_G1000_hg38.txt"
+        gc_file=config["resources"]["ascat_gc"]#gc_file="GC_G1000_hg38.txt"
     shell:
         "Rscript ASCAT_runAscat.R --tumor-logr {input.tumorLogR} --tumor-baf {input.tumorBAF} --germline-logr {input.germlineLogR} --germline-baf {input.germlineBAF} --outdir {params.outdir} --gc-file {params.gc_file} --rdata {output.rdata}"
 

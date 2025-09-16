@@ -12,7 +12,7 @@ with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
 with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
 
-with open(config['project']['bam_table'],'r') as b:
+with open(config.get('project',{}).get('bam_table','bam.table'),'r') as b:
     BAMS=dict(line.split('\t') for line in b.read().splitlines())
 
 ### FUNCTIONS ###

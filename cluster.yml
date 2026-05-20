@@ -2,13 +2,7 @@
     'M': '6144'
     'n': '1'
     'J': '{wildcards.tumor}_{rule}'
-    'eo': 'logs/cluster/{wildcards.tumor}/{rule}.e'
-    'oo': 'logs/cluster/{wildcards.tumor}/{rule}.o'
     'R': '"span [hosts=1] rusage [mem=6144]"'
-mutect2_main:
-    'M': '18432'
-    'n': '4'
-    'R': '"span [hosts=1] rusage [mem=18432]"'
 vardict_paired_main:
     'M': '18432'
     'n': '4'
@@ -38,62 +32,46 @@ ASCAT_write_worksheet:
     'M': '4096'
     'n': '1'
     'J': 'ascat_worksheet'
-    'eo': 'logs/cluster/ascat_worksheet.e'
-    'oo': 'logs/cluster/ascat_worksheet.o'
     'R': '"span [hosts=1] rusage [mem=4096]"'
 
 ASCAT_prepareTargetedSeq:
     'M': '16384'
     'n': '8'
     'J': 'ascat_prep'
-    'eo': 'logs/cluster/ascat_prep.e'
-    'oo': 'logs/cluster/ascat_prep.o'
     'R': '"span [hosts=1] rusage [mem=16384]"'
 
 ASCAT_prepareHTS:
     'M': '16384'
     'n': '1'
     'J': '{wildcards.tumor}_ascat_hts'
-    'eo': 'logs/cluster/{wildcards.tumor}/ascat_hts.e'
-    'oo': 'logs/cluster/{wildcards.tumor}/ascat_hts.o'
     'R': '"span [hosts=1] rusage [mem=16384]"'
 
 ASCAT_runAscat:
     'M': '32768'
     'n': '1'
     'J': '{wildcards.tumor}_ascat_run'
-    'eo': 'logs/cluster/{wildcards.tumor}/ascat_run.e'
-    'oo': 'logs/cluster/{wildcards.tumor}/ascat_run.o'
     'R': '"span [hosts=1] rusage [mem=32768]"'
 
 ASCAT_to_bed:
     'M': '4096'
     'n': '1'
     'J': '{wildcards.tumor}_ascat_bed'
-    'eo': 'logs/cluster/{wildcards.tumor}/ascat_bed.e'
-    'oo': 'logs/cluster/{wildcards.tumor}/ascat_bed.o'
     'R': '"span [hosts=1] rusage [mem=4096]"'
 
 ASCAT_annotsv:
     'M': '8192'
     'n': '1'
     'J': '{wildcards.tumor}_ascat_annotsv'
-    'eo': 'logs/cluster/{wildcards.tumor}/ascat_annotsv.e'
-    'oo': 'logs/cluster/{wildcards.tumor}/ascat_annotsv.o'
     'R': '"span [hosts=1] rusage [mem=8192]"'
 
 ASCAT_annotsv_parser:
     'M': '4096'
     'n': '1'
     'J': '{wildcards.tumor}_ascat_parser'
-    'eo': 'logs/cluster/{wildcards.tumor}/ascat_parser.e'
-    'oo': 'logs/cluster/{wildcards.tumor}/ascat_parser.o'
     'R': '"span [hosts=1] rusage [mem=4096]"'
 
 ascat_HRDex:
     'M': '8192'
     'n': '1'
     'J': '{wildcards.tumor}_ascat_hrd'
-    'eo': 'logs/cluster/{wildcards.tumor}/ascat_hrd.e'
-    'oo': 'logs/cluster/{wildcards.tumor}/ascat_hrd.o'
     'R': '"span [hosts=1] rusage [mem=8192]"'

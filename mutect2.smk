@@ -1,13 +1,6 @@
 ##Author: Brad Wubbenhorst
 
-import os
-
 ### INIT ###
-
-with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
-    SAMPLES=i.read().splitlines()
-    for sample in SAMPLES:
-        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
 with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
@@ -48,6 +41,9 @@ rule mutect2_main:
         indels="data/work/{tumor}/mutect2/somatic.indels.vcf.gz",
         stats="data/work/{tumor}/mutect2/somatic.vcf.gz.stats",
         f1r2="data/work/{tumor}/mutect2/f1r2.tar.gz"
+    threads: 4
+    resources:
+        mem_mb=18432
     params:
         ref=config['reference']['fasta'],
         intervals=config['resources']['targets_intervals'],
@@ -56,7 +52,7 @@ rule mutect2_main:
         memory='16g'
     shell:
         """
-        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2}
+        gatk --java-options '-Xmx{params.memory}' Mutect2 -R {params.ref} -I {input.tumor} -I {input.normal} -tumor {params.tumor} -normal {params.normal} -L {params.intervals} -O {output.raw} --f1r2-tar-gz {output.f1r2} --native-pair-hmm-threads {threads}
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.snps} -L {params.intervals} -select-type SNP
         gatk --java-options '-Xmx{params.memory}' SelectVariants -R {params.ref} -V {output.raw} -O {output.indels} -L {params.intervals} -select-type INDEL
         """
@@ -68,6 +64,8 @@ rule mutect2_LearnReadOrientationModel:
         "data/work/{tumor}/mutect2/f1r2.tar.gz"
     output:
         "data/work/{tumor}/mutect2/read-orientation-model.tar.gz"
+    resources:
+        mem_mb=6144
     shell:
         """
         gatk LearnReadOrientationModel -I {input} -O {output}
@@ -78,6 +76,8 @@ rule mutect2_GetPileupSummaries:
         unpack(paired_bams)
     output:
         pileup="data/work/{tumor}/mutect2/getpileupsummaries.table"
+    resources:
+        mem_mb=6144
     params:
         allele=config['resources']['common_snps'],
         intervals=config['resources']['targets_intervals']
@@ -92,6 +92,8 @@ rule mutect2_CalculateContamination:
     output:
         contamination="data/work/{tumor}/mutect2/calculatecontamination.table",
         segments="data/work/{tumor}/mutect2/segments.table"
+    resources:
+        mem_mb=6144
     shell:
         """
         gatk CalculateContamination -I {input.pileup} -tumor-segmentation {output.segments} -O {output.contamination}
@@ -106,6 +108,8 @@ rule mutect2_FilterMutectCalls:
         model="data/work/{tumor}/mutect2/read-orientation-model.tar.gz"
     output:
         "data/work/{tumor}/mutect2/somatic.filtered.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         ref=config['reference']['fasta']
     shell:
@@ -118,6 +122,8 @@ rule mutect2_somatic_normalized:
         "data/work/{tumor}/mutect2/somatic.filtered.vcf.gz"
     output:
         norm="data/work/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         ref=config['reference']['fasta']
     shell:
@@ -128,6 +134,8 @@ rule mutect2_somatic_normalized:
 rule mutect2_sample_name:
     output:
         "data/work/{tumor}/mutect2/sample.name"
+    resources:
+        mem_mb=6144
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -142,6 +150,8 @@ rule mutect2_somatic_clean:
         vcf="data/work/{tumor}/mutect2/somatic.filtered.norm.vcf.gz"
     output:
         clean="data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
@@ -164,6 +174,8 @@ rule mutect2_somatic_final:
     output:
         "data/final/{tumor}/{tumor}.mutect2.somatic.bcf",
         "data/final/{tumor}/{tumor}.mutect2.somatic.final.bcf"
+    resources:
+        mem_mb=6144
     shell:
         """
         bcftools view -W=csi -Ob -o {output[0]} {input[0]}
@@ -175,6 +187,8 @@ rule mutect2_somatic_vep:
         "data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vcf.gz"
     output:
         "data/work/{tumor}/mutect2/somatic.filtered.norm.clean.vep.vcf"
+    resources:
+        mem_mb=32768
     shell:
         """
         singularity run -H $PWD:/home \

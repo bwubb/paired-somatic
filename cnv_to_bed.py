@@ -140,9 +140,9 @@ class ASCATProcessor(CNVProcessor):
             cn_b=int(row['nMinor'])
             cn_total=cn_a+cn_b
             return self.format_bed_row(
-                row['chromosome'],
-                row['start'],
-                row['end'],
+                row['chr'],
+                row['startpos'],
+                row['endpos'],
                 cn_total,
                 cn_a,
                 cn_b

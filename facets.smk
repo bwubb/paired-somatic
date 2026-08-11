@@ -1,10 +1,7 @@
-#"Reference and variant allele read counts were extraced from the bams files for germline polymorphic
-#sites cataloagues in the dvSNP and 1000genome databases."
+### INIT ###
 
 with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
     SAMPLES=i.read().splitlines()
-    for sample in SAMPLES:
-        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
 with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
@@ -12,36 +9,33 @@ with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
 with open(config['project']['bam_table'],'r') as b:
     BAMS=dict(line.split('\t') for line in b.read().splitlines())
 
+### FUNCTIONS ###
 
 def paired_bams(wildcards):
-    ref=config['reference']['key']
     tumor=wildcards.tumor
     normal=PAIRS[wildcards.tumor]
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
 
+# Pileup shard file names always use chr1..chrX; SNP VCF contents match BAM contigs.
 CHR=[f'chr{c}' for c in range(1,23)]+['chrX']
-
-#gnomad is not enough
-#need dbsnp
-
-#def gnomad_snp(wildcards):
-#    #return f"/home/bwubb/resources/Vcf_files/gnomad.exomes.r2.0.2.sites.{config['resources']['targets_key']}.common_biallelic_snps.simplified.vcf.gz"
-#    return f"/home/bwubb/resources/Vcf_files/dbsnp151.snps.20180423.vcf.gz"
 
 wildcard_constraints:
     work_dir=f"data/work/{config['resources']['targets_key']}",
     chr="chr[1-2][0-9]|chr[1-9]|chrX"
 
+### SNAKEMAKE ###
+
 rule collect_facets:
     input:
         expand("data/work/{lib}/{tumor}/facets/annotsv_gene_split.report.csv",lib=f"{config['resources']['targets_key']}",tumor=PAIRS.keys())
-
 
 rule facets_chr_pileup:
     input:
         unpack(paired_bams)
     output:
         temp("{work_dir}/{tumor}/facets/pileup.{chr}.csv.gz")
+    resources:
+        mem_mb=6144
     params:
         snp=lambda wildcards: f"/home/bwubb/resources/Vcf_files/dbsnp156.GRCh38.snps.{wildcards.chr}.20240405.vcf.gz"
     shell:
@@ -54,22 +48,33 @@ rule facets_merge_pileup:
         [f"{{work_dir}}/{{tumor}}/facets/pileup.{chr}.csv.gz" for chr in CHR]
     output:
         "{work_dir}/{tumor}/facets/pileup.csv.gz"
+    resources:
+        mem_mb=6144
     shell:
         """
         zcat {input} | awk 'NR == 1 || !/^Chromosome/' | bgzip -c > {output}
         """
 
-#Lower cval lead to higher sensitivity for small changes.
+# Lower cval -> higher sensitivity for small changes (procSample).
 rule run_facets:
     input:
         "{work_dir}/{tumor}/facets/pileup.csv.gz"
     output:
-        "{work_dir}/{tumor}/facets/segmentation_cncf.csv"
+        "{work_dir}/{tumor}/facets/segmentation_cncf.csv",
+        "{work_dir}/{tumor}/facets/purity_ploidy.csv",
+        "{work_dir}/{tumor}/facets/copynumber_profile.pdf",
+        "{work_dir}/{tumor}/facets/fit_diagnostic.pdf",
+        "{work_dir}/{tumor}/facets/{tumor}_segments.txt",
+        "{work_dir}/{tumor}/facets/flags.txt"
+    resources:
+        mem_mb=18432
     params:
-        cval=150
+        cval=150,
+        ndepth=25,
+        gbuild="hg38"
     shell:
         """
-        Rscript facets-snakemake.R --id {wildcards.tumor} --input {input} --cval {params.cval}
+        Rscript facets-snakemake.R --id {wildcards.tumor} --input {input} --cval {params.cval} --ndepth {params.ndepth} --gbuild {params.gbuild}
         """
 
 rule facets_2bed:
@@ -77,6 +82,8 @@ rule facets_2bed:
         "{work_dir}/{tumor}/facets/segmentation_cncf.csv"
     output:
         "{work_dir}/{tumor}/facets/segmentation_cncf.bed"
+    resources:
+        mem_mb=6144
     shell:
         """
         python cnv_to_bed.py -c facets {input}
@@ -87,6 +94,8 @@ rule facets_AnnotSV:
         "{work_dir}/{tumor}/facets/segmentation_cncf.bed"
     output:
         "{work_dir}/{tumor}/facets/annotsv.gene_split.tsv"
+    resources:
+        mem_mb=8192
     params:
         build=config['reference']['key']
     shell:
@@ -99,19 +108,9 @@ rule facets_AnnotSV_parser:
         "{work_dir}/{tumor}/facets/annotsv.gene_split.tsv"
     output:
         "{work_dir}/{tumor}/facets/annotsv_gene_split.report.csv"
+    resources:
+        mem_mb=6144
     shell:
         """
         python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.tumor}
-        """
-
-rule facets_hrd:
-    input:
-        segments="{work_dir}/{tumor}/facets/{tumor}_segments.txt"
-    output:
-        "{work_dir}/{tumor}/facets/{tumor}_hrd.txt"
-    params:
-        build=config['reference']['key'].lower()
-    shell:
-        """
-        Rscript $HOME/software/HRDex/R/run_HRDex.R -i {input} -o {output} --tumor {wildcards.tumor} --build {params.build}
         """

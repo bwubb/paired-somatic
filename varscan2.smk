@@ -1,14 +1,8 @@
-import os
 import csv
 
 #include:"./sequenza2.smk"
 
 ### INIT ###
-
-with open(config.get('project',{}).get('sample_list','samples.list'),'r') as i:
-    SAMPLES=i.read().splitlines()
-    for sample in SAMPLES:
-        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
 with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
@@ -36,12 +30,14 @@ rule run_varscan2:
 #I have no fix at the moment
 rule filter_applied_varscan2:
     input:
-        expand("data/work/{tumor}/varscan2/somatic.fpfilter.fix.norm.clean.vcf.gz",tumor=PAIRS.keys()),
-        expand("data/work/{tumor}/varscan2/germline.fpfilter.fix.norm.clean.vcf.gz",tumor=PAIRS.keys())
+        expand("data/work/{tumor}/varscan2/somatic.fpfilter.processed.norm.clean.vcf.gz",tumor=PAIRS.keys()),
+        expand("data/work/{tumor}/varscan2/germline.fpfilter.processed.norm.clean.vcf.gz",tumor=PAIRS.keys())
 
 rule varscan2_sample_name:
     output:
         "data/work/{tumor}/varscan2/sample.name"
+    resources:
+        mem_mb=6144
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -55,11 +51,14 @@ rule samtools_pair_mpileup:
         unpack(paired_bams)
     output:
         temp("data/work/{tumor}/varscan2/normal_tumor.mpileup")
+    threads: 4
+    resources:
+        mem_mb=6144
     params:
         ref=config['reference']['fasta'],
         bed=config['resources']['targets_bed']
     shell:
-        "samtools mpileup -ABR -f {params.ref} -l {params.bed} -o {output} -Q 20 {input.normal} {input.tumor}"
+        "samtools mpileup -@ {threads} -ABR -f {params.ref} -l {params.bed} -o {output} -Q 20 {input.normal} {input.tumor}"
 
 rule varscan2_main:
     input:
@@ -70,6 +69,8 @@ rule varscan2_main:
         snp="data/work/{tumor}/varscan2/variants.snp.vcf"
         #Note the none plural
         #I can use --output-snp and indel to name files
+    resources:
+        mem_mb=18432
     params:
         prefix="data/work/{tumor}/varscan2/variants",
         args='--min-coverage 3 --min-var-freq 0.08 --p-value 0.10 --somatic-p-value 0.05 --strand-filter 0',
@@ -77,7 +78,7 @@ rule varscan2_main:
         #old settings: args="--min-coverage 5 --p-value 0.98 --strand-filter 1"
     shell:
         """
-        java -Xmx{params.memory} -jar $HOME/software/varscan/VarScan.v2.4.4.jar somatic {input.pileup} {params.prefix} --mpileup 1 --output-vcf 1 {params.args}
+        java -Xmx{params.memory} -jar $HOME/software/varscan/VarScan.v2.4.6.jar somatic {input.pileup} {params.prefix} --mpileup 1 --output-vcf 1 {params.args}
         """
     
 rule varscan2_processSomatic:
@@ -89,6 +90,8 @@ rule varscan2_processSomatic:
         somatic_indel="data/work/{tumor}/varscan2/somatic.indel.vcf",
         germline_snp="data/work/{tumor}/varscan2/germline.snp.vcf",
         germline_indel="data/work/{tumor}/varscan2/germline.indel.vcf"
+    resources:
+        mem_mb=6144
     params:
         bam=lambda wildcards: BAMS[wildcards.tumor],
         snp=temp("data/work/{tumor}/varscan2/variants.snp.updated.vcf"),
@@ -106,8 +109,8 @@ rule varscan2_processSomatic:
         """
         gatk UpdateVCFSequenceDictionary -V {input.snp} --source-dictionary {params.bam} --output {params.snp}
         gatk UpdateVCFSequenceDictionary -V {input.indel} --source-dictionary {params.bam} --output {params.indel}
-        java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {params.snp}
-        java -jar ~/software/varscan/VarScan.v2.4.4.jar processSomatic {params.indel}
+        java -jar ~/software/varscan/VarScan.v2.4.6.jar processSomatic {params.snp}
+        java -jar ~/software/varscan/VarScan.v2.4.6.jar processSomatic {params.indel}
 
         bcftools view -Ov -o {output.somatic_snp} {params.somatic_snp}
         bcftools view -Ov -o {output.somatic_indel} {params.somatic_indel}
@@ -135,6 +138,8 @@ rule varscan2_concat:
     output:
         somatic="data/work/{tumor}/varscan2/somatic.vcf.gz",
         germline="data/work/{tumor}/varscan2/germline.vcf.gz"
+    resources:
+        mem_mb=6144
     shell:
         """
         bcftools view -W=tbi -Oz -o {params.somatic_snp} {input.somatic_snp}
@@ -153,6 +158,8 @@ rule bamreadcount_somatic_regions:
     output:
         "data/work/{tumor}/varscan2/somatic.snp.regions",
         "data/work/{tumor}/varscan2/somatic.indel.regions"
+    resources:
+        mem_mb=6144
     shell:
         "python bam-readcount_regions.py {input}"
 
@@ -164,6 +171,8 @@ rule bamreadcount_somatic_readcounts:
     output:
         snp="data/work/{tumor}/varscan2/somatic.snp.readcounts",
         indel="data/work/{tumor}/varscan2/somatic.indel.readcounts"
+    resources:
+        mem_mb=6144
     params:
         ref=config['reference']['fasta']
     shell:
@@ -186,10 +195,12 @@ rule varscan2_somatic_fpfilter:
     output:
         snp="data/work/{tumor}/varscan2/somatic.fpfilter.snp.vcf",
         indel="data/work/{tumor}/varscan2/somatic.fpfilter.indel.vcf"
+    resources:
+        mem_mb=6144
     shell:
         """
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp} --keep-failures
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel} --keep-failures
+        java -jar $HOME/software/varscan/VarScan.v2.4.6.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp} --keep-failures
+        java -jar $HOME/software/varscan/VarScan.v2.4.6.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel} --keep-failures
         """
         ##
         #For VarScan fpfilter (--dream-3-settings):
@@ -215,6 +226,8 @@ rule varscan2_somatic_postprocess:
     output:
         "data/work/{tumor}/varscan2/somatic.fpfilter.snp.processed.vcf",
         "data/work/{tumor}/varscan2/somatic.fpfilter.indel.processed.vcf"
+    resources:
+        mem_mb=6144
     shell:
         "python process_varscan2_out.py {input}"
 
@@ -224,6 +237,8 @@ rule varscan2_somatic_merge:
         indel="data/work/{tumor}/varscan2/somatic.fpfilter.indel.processed.vcf"
     output:
         "data/work/{tumor}/varscan2/somatic.fpfilter.processed.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         snp="data/work/{tumor}/varscan2/somatic.fpfilter.snp.processed.vcf.gz",
         indel="data/work/{tumor}/varscan2/somatic.fpfilter.indel.processed.vcf.gz"
@@ -239,6 +254,8 @@ rule varscan2_somatic_normalized:
         "data/work/{tumor}/varscan2/somatic.fpfilter.processed.vcf.gz"
     output:
         norm="data/work/{tumor}/varscan2/somatic.fpfilter.processed.norm.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         ref=config['reference']['fasta']
     shell:
@@ -252,6 +269,8 @@ rule varscan2_somatic_clean:
         vcf="data/work/{tumor}/varscan2/somatic.fpfilter.processed.norm.vcf.gz"
     output:
         clean="data/work/{tumor}/varscan2/somatic.fpfilter.processed.norm.clean.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
@@ -274,6 +293,8 @@ rule varscan2_somatic_final:
     output:
         "data/final/{tumor}/{tumor}.varscan2.somatic.bcf",
         "data/final/{tumor}/{tumor}.varscan2.somatic.final.bcf"
+    resources:
+        mem_mb=6144
     shell:
         """
         bcftools view -W=csi -Ob -o {output[0]} {input[0]}
@@ -287,6 +308,8 @@ rule bamreadcount_germline_regions:
     output:
         "data/work/{tumor}/varscan2/germline.snp.regions",
         "data/work/{tumor}/varscan2/germline.indel.regions"
+    resources:
+        mem_mb=6144
     shell:
         "python bam-readcount_regions.py {input}"
 
@@ -298,6 +321,8 @@ rule bamreadcount_germline_readcounts:
     output:
         snp="data/work/{tumor}/varscan2/germline.snp.readcounts",
         indel="data/work/{tumor}/varscan2/germline.indel.readcounts"
+    resources:
+        mem_mb=6144
     params:
         ref=config['reference']['fasta']
     shell:
@@ -315,10 +340,12 @@ rule varscan2_germline_fpfilter:
     output:
         snp="data/work/{tumor}/varscan2/germline.snp.fpfilter.vcf",
         indel="data/work/{tumor}/varscan2/germline.indel.fpfilter.vcf"
+    resources:
+        mem_mb=6144
     shell:
         """
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp}
-        java -jar $HOME/software/varscan/VarScan.v2.4.4.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel}
+        java -jar $HOME/software/varscan/VarScan.v2.4.6.jar fpfilter {input.snp_vcf} {input.snp_readcount} --output-file {output.snp}
+        java -jar $HOME/software/varscan/VarScan.v2.4.6.jar fpfilter {input.indel_vcf} {input.indel_readcount} --output-file {output.indel}
         """
 
 rule varscan2_germline_postprocess:
@@ -328,6 +355,8 @@ rule varscan2_germline_postprocess:
     output:
         snp="data/work/{tumor}/varscan2/germline.snp.fpfilter.processed.vcf",
         indel="data/work/{tumor}/varscan2/germline.indel.fpfilter.processed.vcf"
+    resources:
+        mem_mb=6144
     shell:
         "python process_varscan2_out.py {input}"
 
@@ -337,6 +366,8 @@ rule varscan2_germline_merge:
         indel="data/work/{tumor}/varscan2/germline.indel.fpfilter.processed.vcf"
     output:
         "data/work/{tumor}/varscan2/germline.fpfilter.processed.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         snp="data/work/{tumor}/varscan2/germline.snp.fpfilter.processed.vcf.gz",
         indel="data/work/{tumor}/varscan2/germline.indel.fpfilter.processed.vcf.gz"
@@ -352,6 +383,8 @@ rule varscan2_germline_normalized:
         "data/work/{tumor}/varscan2/germline.fpfilter.processed.vcf.gz"
     output:
         "data/work/{tumor}/varscan2/germline.fpfilter.processed.norm.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
@@ -366,6 +399,8 @@ rule varscan2_germline_clean:
         vcf="data/work/{tumor}/varscan2/germline.fpfilter.processed.norm.vcf.gz"
     output:
         clean="data/work/{tumor}/varscan2/germline.fpfilter.processed.norm.clean.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
@@ -388,6 +423,8 @@ rule varscan2_germline_final:
     output:
         "data/final/{tumor}/{tumor}.varscan2.germline.bcf",
         "data/final/{tumor}/{tumor}.varscan2.germline.final.bcf"
+    resources:
+        mem_mb=6144
     shell:
         """
         bcftools view -W=csi -Ob -o {output[0]} {input[0]}

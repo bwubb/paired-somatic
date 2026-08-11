@@ -8,6 +8,21 @@ def mkdir_p(path):
         if exc.errno==errno.EEXIST and os.path.isdir(path):
             pass
 
+# Host cnvkit.py dies on RHEL9 OpenSSL FIPS (pysam). Run via Singularity BioContainers image.
+# Override with cnvkit.container in config if needed.
+CNVKIT_SIF=config.get('cnvkit',{}).get('container','/home/bwubb/containers/cnvkit_0.9.10.sif')
+# Shell preamble: pwd -P so we sit on /project/... not a broken /home/.../projects symlink.
+# No --pwd (same DeepVariant gotcha). Relative paths work after cd "$WORKDIR".
+CNVKIT_EXEC=(
+    'WORKDIR="$(pwd -P)"; cd "$WORKDIR"; '
+    'singularity exec '
+    '--bind /project:/project '
+    '--bind /home/bwubb:/home/bwubb '
+    '--bind /scratch:/scratch '
+    '--bind "$WORKDIR:$WORKDIR" '
+    f'{CNVKIT_SIF} cnvkit.py'
+)
+
 #Pair Table.
 with open(config['project']['pair_table'],'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
@@ -107,10 +122,11 @@ rule cnvkit_access:
         "/home/bwubb/resources/Bed_files/cnvkit.access-excludes.GRCh38.bed"
     params:
         ref=config['reference']['fasta'],
-        exclude="/home/bwubb/resources/Bed_files/SV_blacklist.10xGenomics.GRCh38.bed"
+        exclude="/home/bwubb/resources/Bed_files/SV_blacklist.10xGenomics.GRCh38.bed",
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py access {params.ref} -x {params.exclude} -o {output}
+        {params.cnvkit} access {params.ref} -x {params.exclude} -o {output}
         """
         #This had all the KT*** stuff and is causing errors in PureCN...
 
@@ -125,11 +141,12 @@ rule cnvkit_autobin:
         antitargets=f"data/cnvkit/{config['project']['name']}.{config['resources']['targets_key']}.cnvkit-antitargets.bed"
     params:
         bed=config.get('cnvkit',{}).get('baits_bed',config['resources']['targets_bed']),
-        ref_flat="/home/bwubb/resources/refGene/refFlat.grch38.txt"
+        ref_flat="/home/bwubb/resources/refGene/refFlat.grch38.txt",
+        cnvkit=CNVKIT_EXEC
     shell:
         """
         mkdir -p data/cnvkit
-        cnvkit.py autobin {input.bams} -t {params.bed} -g {input.access} --annotate {params.ref_flat} --short-names --target-output-bed {output.targets} --antitarget-output-bed {output.antitargets}
+        {params.cnvkit} autobin {input.bams} -t {params.bed} -g {input.access} --annotate {params.ref_flat} --short-names --target-output-bed {output.targets} --antitarget-output-bed {output.antitargets}
         """
 
 rule cnvkit_target_coverage:
@@ -138,9 +155,11 @@ rule cnvkit_target_coverage:
         bed=lambda wildcards: f"data/cnvkit/{config['project']['name']}.{config['resources']['targets_key']}.cnvkit-targets.bed"
     output:
         "data/work/{sample}/cnvkit/{sample}.targetcoverage.cnn"
+    params:
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py coverage {input.bam} {input.bed} -o {output}
+        {params.cnvkit} coverage {input.bam} {input.bed} -o {output}
         """
 
 rule cnvkit_antitarget_coverage:
@@ -149,9 +168,11 @@ rule cnvkit_antitarget_coverage:
         bed=f"data/cnvkit/{config['project']['name']}.{config['resources']['targets_key']}.cnvkit-antitargets.bed"
     output:
         'data/work/{sample}/cnvkit/{sample}.antitargetcoverage.cnn'
+    params:
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py coverage {input.bam} {input.bed} -o {output}
+        {params.cnvkit} coverage {input.bam} {input.bed} -o {output}
         """
 
 #To analyze a cohort sequenced on a single platform, we recommend combining all normal samples into a pooled reference,
@@ -167,10 +188,11 @@ rule cnvkit_reference:
     output:
         "data/cnvkit/reference.cnn"
     params:
-        ref=config['reference']['fasta']
+        ref=config['reference']['fasta'],
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py reference {input} --fasta {params.ref} -o {output}
+        {params.cnvkit} reference {input} --fasta {params.ref} -o {output}
         """
 #file names needs to be sample.{,anti}targetcoverage.cnn
 rule cnvkit_fix:
@@ -180,9 +202,11 @@ rule cnvkit_fix:
         reference="data/cnvkit/reference.cnn"
     output:
         "data/work/{tumor}/cnvkit/{tumor}.cnr"
+    params:
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py fix {input.targets} {input.antitargets} {input.reference} -o {output}
+        {params.cnvkit} fix {input.targets} {input.antitargets} {input.reference} -o {output}
         """
 
 # Shared germline heterozygous SNPs for CNVkit segment/call and PureCN.
@@ -225,10 +249,11 @@ rule cnvkit_segment:
         "data/work/{tumor}/cnvkit/{tumor}.cns"
     params:
         tumor="{tumor}",
-        normal=lambda wildcards: PAIRS[wildcards.tumor]
+        normal=lambda wildcards: PAIRS[wildcards.tumor],
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py segment {input.cnr} -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
+        {params.cnvkit} segment {input.cnr} -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
         """
 #Native VarScan2 calls lack FORMAT:AF
 
@@ -238,9 +263,11 @@ rule cnvkit_export_seg:
         "data/work/{tumor}/cnvkit/{tumor}.cns"
     output:
         "data/work/{tumor}/cnvkit/{tumor}.seg"
+    params:
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py export seg {input} -o {output}
+        {params.cnvkit} export seg {input} -o {output}
         """
 
 rule purecn_run:
@@ -330,13 +357,14 @@ rule cnvkit_call:
     params:
         tumor="{tumor}",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
-        sex=lambda wildcards: sample_sex(wildcards.tumor)['cnvkit']
+        sex=lambda wildcards: sample_sex(wildcards.tumor)['cnvkit'],
+        cnvkit=CNVKIT_EXEC
     shell:
         """
         purity=`grep {params.tumor} {input.csv} | cut -d, -f2`
         ploidy=`grep {params.tumor} {input.csv} | cut -d, -f3 | cut -d. -f1`
 
-        cnvkit.py call {input.cns} -x {params.sex} -m clonal --purity $purity --ploidy $ploidy -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
+        {params.cnvkit} call {input.cns} -x {params.sex} -m clonal --purity $purity --ploidy $ploidy -v {input.vcf} -i {params.tumor} -n {params.normal} -o {output}
         """
 
 rule cnvkit_to_bed:
@@ -408,9 +436,11 @@ rule cnvkit_germline_fix:
         reference="data/cnvkit/reference.cnn"
     output:
         "data/work/{germline}/cnvkit/{germline}.germline.cnr"
+    params:
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py fix {input.targets} {input.antitargets} {input.reference} -o {output}
+        {params.cnvkit} fix {input.targets} {input.antitargets} {input.reference} -o {output}
         """
 
 rule cnvkit_germline_input_vcf:
@@ -445,10 +475,11 @@ rule cnvkit_germline_segment:
     output:
         "data/work/{germline}/cnvkit/{germline}.germline.cns"
     params:
-        germline="{germline}"
+        germline="{germline}",
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py segment {input.cnr} -v {input.vcf} -i {params.germline} -n {params.germline} -o {output}
+        {params.cnvkit} segment {input.cnr} -v {input.vcf} -i {params.germline} -n {params.germline} -o {output}
         """
 
 rule cnvkit_germline_call:
@@ -459,10 +490,11 @@ rule cnvkit_germline_call:
         "data/work/{germline}/cnvkit/{germline}.germline.call.cns"
     params:
         germline="{germline}",
-        sex=lambda wildcards: sample_sex(wildcards.germline)['cnvkit']
+        sex=lambda wildcards: sample_sex(wildcards.germline)['cnvkit'],
+        cnvkit=CNVKIT_EXEC
     shell:
         """
-        cnvkit.py call {input.cns} -x {params.sex} -m clonal --purity 1 --ploidy 2 -v {input.vcf} -i {params.germline} -n {params.germline} -o {output}
+        {params.cnvkit} call {input.cns} -x {params.sex} -m clonal --purity 1 --ploidy 2 -v {input.vcf} -i {params.germline} -n {params.germline} -o {output}
         """
 
 rule cnvkit_germline_to_bed:

@@ -1,11 +1,7 @@
-import os
-
 ### INIT ###
 
 with open(config.get('project',{}).get('sample_list','samples.list'),'r') as s:
     SAMPLES=s.read().splitlines()
-    for sample in SAMPLES:
-        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
 
 with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
@@ -49,6 +45,9 @@ rule vardict_paired_main:#First a more lenient -P val, not sure what
         unpack(paired_bams)
     output:
         "data/work/{tumor}/vardict/variants.paired.vcf.gz"
+    threads: 4
+    resources:
+        mem_mb=18432
     params:
         init=temp("data/work/{tumor}/vardict/output.vcf.gz"),
         bam=lambda wildcards: BAMS[wildcards.tumor],
@@ -57,8 +56,6 @@ rule vardict_paired_main:#First a more lenient -P val, not sure what
         path="$HOME/software/VarDictJava/VarDict",
         normal=lambda wildcards: PAIRS[wildcards.tumor],
         AF_THR=0.01
-    threads:
-        4
     shell:#split to snps and indels
         """
         VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.tumor} -b '{input.tumor}|{input.normal}' -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/testsomatic.R | {params.path}/var2vcf_paired.pl -N '{wildcards.tumor}|{params.normal}' -f {params.AF_THR} | bgzip -c > {params.init}
@@ -71,14 +68,15 @@ rule vardict_unpaired_main:#First a more lenient -P val, not sure what
         bam=lambda wildcards: BAMS[wildcards.sample]
     output:
         "data/work/{sample}/vardict/variants.unpaired.vcf.gz"
+    threads: 4
+    resources:
+        mem_mb=18432
     params:
         init=temp("data/work/{sample}/vardict/output2.vcf.gz"),
         ref=config['reference']['fasta'],
         bed=config['resources']['targets_bed'],
         path="$HOME/software/VarDictJava/VarDict",
         AF_THR=0.01
-    threads:
-        4
     shell:
         """
         VarDict -th {threads} -G {params.ref} -f {params.AF_THR} -N {wildcards.sample} -b {input.bam} -c 1 -S 2 -E 3 -g 4 {params.bed} | {params.path}/teststrandbias.R | {params.path}/var2vcf_valid.pl -N {wildcards.sample} -f {params.AF_THR} | bgzip -c > {params.init}
@@ -92,10 +90,13 @@ rule vardict_filter:
     output:
         once="data/work/{tumor}/vardict/variants.paired.filter1.vcf.gz",
         twice="data/work/{tumor}/vardict/variants.paired.filter2.vcf.gz"
+    threads: 4
+    resources:
+        mem_mb=6144
     shell:
         """
-        bcftools filter -e '((FORMAT/AF[0] * FORMAT/DP[0] < 6) && ((FORMAT/MQ[0] < 55.0 && FORMAT/NM[0] > 1.0) || (FORMAT/MQ[0] < 60.0 && FORMAT/NM[0] > 2.0) || (FORMAT/DP[0] < 10) || (QUAL < 45)))' -s filter_1 -m + -W=tbi -O z {input} > {output.once}
-        bcftools filter -e 'FORMAT/AF[0] < 0.2 && FORMAT/QUAL[0] < 55 && INFO/SSF[0] > 0.06' -s filter_2 -m + -W=tbi -O z {output.once} > {output.twice}
+        bcftools filter --threads {threads} -e '((FORMAT/AF[0] * FORMAT/DP[0] < 6) && ((FORMAT/MQ[0] < 55.0 && FORMAT/NM[0] > 1.0) || (FORMAT/MQ[0] < 60.0 && FORMAT/NM[0] > 2.0) || (FORMAT/DP[0] < 10) || (QUAL < 45)))' -s filter_1 -m + -W=tbi -Oz -o {output.once} {input}
+        bcftools filter --threads {threads} -e 'FORMAT/AF[0] < 0.2 && FORMAT/QUAL[0] < 55 && INFO/SSF[0] > 0.06' -s filter_2 -m + -W=tbi -Oz -o {output.twice} {output.once}
         """
 
 #Maybe filter is only good for somatic?
@@ -109,13 +110,15 @@ rule vardict_split:
         somatic2="data/work/{tumor}/vardict/somatic.filter2.vcf.gz",
         germline1="data/work/{tumor}/vardict/germline.vcf.gz",
         germline2="data/work/{tumor}/vardict/germline.filter2.vcf.gz"
+    resources:
+        mem_mb=6144
     shell:
         """
-        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -W=tbi -O z -o {output.somatic1} {input.one}
-        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -W=tbi -O z -o {output.somatic2} {input.two}
+        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -W=tbi -Oz -o {output.somatic1} {input.one}
+        bcftools view -i 'INFO/STATUS==\"StrongSomatic\" || INFO/STATUS==\"LikelySomatic\"' -W=tbi -Oz -o {output.somatic2} {input.two}
         
-        bcftools view -i 'INFO/STATUS==\"Germline\" || INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -W=tbi -O z -o {output.germline1} {input.one}
-        bcftools view -i 'INFO/STATUS==\"Germline\" || INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -W=tbi -O z -o {output.germline2} {input.two}
+        bcftools view -i 'INFO/STATUS==\"Germline\" || INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -W=tbi -Oz -o {output.germline1} {input.one}
+        bcftools view -i 'INFO/STATUS==\"Germline\" || INFO/STATUS==\"StrongLOH\" || INFO/STATUS==\"LikelyLOH\"' -W=tbi -Oz -o {output.germline2} {input.two}
         """
 
 rule vardict_somatic_normalized:
@@ -123,6 +126,8 @@ rule vardict_somatic_normalized:
         "data/work/{tumor}/vardict/somatic.filter2.vcf.gz"
     output:
         norm="data/work/{tumor}/vardict/somatic.filter2.norm.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         ref=config['reference']['fasta']
     shell:
@@ -133,6 +138,8 @@ rule vardict_somatic_normalized:
 rule vardict_sample_name:
     output:
         "data/work/{tumor}/vardict/sample.name"
+    resources:
+        mem_mb=6144
     params:
         normal=lambda wildcards: PAIRS[wildcards.tumor]
     shell:
@@ -147,6 +154,8 @@ rule vardict_somatic_clean:
         vcf="data/work/{tumor}/vardict/somatic.filter2.norm.vcf.gz"
     output:
         clean="data/work/{tumor}/vardict/somatic.filter2.norm.clean.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
@@ -167,6 +176,8 @@ rule vardict_somatic_final_output:
     output:
         "data/final/{tumor}/{tumor}.vardict.somatic.bcf",
         "data/final/{tumor}/{tumor}.vardict.somatic.final.bcf"
+    resources:
+        mem_mb=6144
     params:
         lib=config['resources']['targets_key']
     shell:
@@ -180,6 +191,8 @@ rule vardict_germline_normalized:
         "data/work/{tumor}/vardict/germline.filter2.vcf.gz"
     output:
         norm="data/work/{tumor}/vardict/germline.filter2.norm.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         regions=config['resources']['targets_bedgz'],
         ref=config['reference']['fasta']
@@ -194,6 +207,8 @@ rule vardict_germline_clean:
         vcf="data/work/{tumor}/vardict/germline.filter2.norm.vcf.gz"
     output:
         clean="data/work/{tumor}/vardict/germline.filter2.norm.clean.vcf.gz"
+    resources:
+        mem_mb=6144
     params:
         regions=config['resources']['targets_bedgz'],
         fai=f"{config['reference']['fasta']}.fai",
@@ -214,6 +229,8 @@ rule vardict_germline_final:
     output:
         "data/final/{tumor}/{tumor}.vardict.germline.bcf",
         "data/final/{tumor}/{tumor}.vardict.germline.final.bcf"
+    resources:
+        mem_mb=6144
     shell:
         """
         bcftools view -W=tbi -Ob -o {output[0]} {input[0]}

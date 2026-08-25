@@ -1,18 +1,22 @@
-#https://github.com/bwubb
+##Author: Brad Wubbenhorst
+# https://github.com/bwubb
+#
+# Varlociraptor is a Rust binary. Host cargo builds need libclang (not on RHEL9
+# modules here), so we run the BioContainers SIF instead:
+#   singularity pull $HOME/containers/varlociraptor.sif \
+#     docker://quay.io/biocontainers/varlociraptor:8.9.5--h24073b4_0
+# Override with varlociraptor.container in config if needed.
 
 import os
 import yaml
-#include ./lancet.smk
+
+#include ./lancet2.smk
 #include ./mutect2.smk
 #include ./strelka2.smk
 #include ./vardictjava.smk
 #include ./varscan2.smk
 
-##INIT
-with open(config.get('project',{}).get('sample_list','sample.list'),'r') as i:
-    SAMPLES=i.read().splitlines()
-    for sample in SAMPLES:
-        os.makedirs(f'logs/cluster/{sample}',exist_ok=True)
+### INIT ###
 
 with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
     PAIRS=dict(line.split('\t') for line in p.read().splitlines())
@@ -25,6 +29,21 @@ with open(config.get('analysis',{}).get('purity_table','purity.table'),'r') as u
 
 TUMORS=PAIRS.keys()
 
+VLR_SIF=config.get('varlociraptor',{}).get('container','/home/bwubb/containers/varlociraptor.sif')
+
+# Same bind pattern as lancet2 / strelka2 / cnvkit_singularity.
+def singularity_exec(sif):
+    return (
+        'WORKDIR="$(pwd -P)"; cd "$WORKDIR"; '
+        'singularity exec '
+        '--bind /project:/project '
+        '--bind /home/bwubb:/home/bwubb '
+        '--bind /scratch:/scratch '
+        '--bind "$WORKDIR:$WORKDIR" '
+        f'{sif}'
+    )
+
+### FUNCTIONS ###
 
 def map_preprocess(wildcards):
     return {'bam':BAMS[wildcards.sample],
@@ -43,32 +62,36 @@ def genome_size(wildcards):
     G={'S04380110':'5.0e7','S07604715':'6.6e7','S31285117':'4.9e7','xgen-exome-research-panel-targets-grch37':'3.9e7','':'4.9e7','XGEN-EXOME-HYB-V2':'3.4e7'}
     return G[config['resources']['targets_key']]
 
-##TARGET RULES
+### TARGET RULES ###
+
 rule vlr_paired_somatic:
     input:
         expand("data/work/{tumor}/varlociraptor/{scenario}.paired_somatic.vep.vcf",
                tumor=TUMORS,
                scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0])
 
-##SNAKEMAKE
+### SNAKEMAKE ###
+
 wildcard_constraints:
     scenario=os.path.splitext(os.path.basename(config['analysis']['vlr']))[0]
 
 #header file paths need to be altered when repository is working
-rule lancet_vlr_input:
+rule lancet2_vlr_input:
     input:
-        vcf="data/work/{tumor}/lancet/somatic.norm.clean.vcf.gz"
+        vcf="data/work/{tumor}/lancet2/somatic.norm.clean.vcf.gz"
     output:
-        tsv="data/work/{tumor}/varlociraptor/lancet.candidates.tsv",
-        bcf="data/work/{tumor}/varlociraptor/lancet.candidates.bcf"
+        tsv="data/work/{tumor}/varlociraptor/lancet2.candidates.tsv",
+        bcf="data/work/{tumor}/varlociraptor/lancet2.candidates.bcf"
+    resources:
+        mem_mb=6144
     params:
-        tsv=temp("data/work/{tumor}/varlociraptor/lancet1.tsv"),
-        header="$HOME/resources/Vcf_files/headers/lancet.contig_header.grch38.vcf"
+        tsv=temp("data/work/{tumor}/varlociraptor/lancet2_1.tsv"),
+        header="$HOME/resources/Vcf_files/headers/lancet2.contig_header.grch38.vcf"
     shell:
         """
         bcftools view -G -Ov {input.vcf} |
         perl -lne 'if (/^#/) {{print}} else {{@row=split /\\t/; $row[6] =~ s/^(?!PASS).*/FAIL/; print join ("\\t", @row)}}' |
-        bcftools query -f'%CHROM\\t%POS\\t.\\t%REF\\t%ALT\\t.\\t%FILTER\\tCATEGORY=LANCET|SOMATIC;LANCET=%FILTER\\n' > {params.tsv}
+        bcftools query -f'%CHROM\\t%POS\\t.\\t%REF\\t%ALT\\t.\\t%FILTER\\tCATEGORY=LANCET2|SOMATIC;LANCET2=%FILTER\\n' > {params.tsv}
 
         cat {params.header} {params.tsv} | bcftools sort -Ob -W=csi -o {output.bcf}
         bcftools query -f'%CHROM\\t%POS\\t.\\t%REF\\t%ALT\\t.\\t%FILTER\\t.\\n' {output.bcf} > {output.tsv}
@@ -80,6 +103,8 @@ rule mutect2_vlr_input:
     output:
         tsv="data/work/{tumor}/varlociraptor/mutect2.candidates.tsv",
         bcf="data/work/{tumor}/varlociraptor/mutect2.candidates.bcf"
+    resources:
+        mem_mb=6144
     params:
         tsv=temp("data/work/{tumor}/varlociraptor/mutect2_1.tsv"),
         header="$HOME/resources/Vcf_files/headers/mutect2.contig_header.grch38.vcf"
@@ -99,6 +124,8 @@ rule strelka2_vlr_input:
     output:
         tsv="data/work/{tumor}/varlociraptor/strelka2.candidates.tsv",
         bcf="data/work/{tumor}/varlociraptor/strelka2.candidates.bcf"
+    resources:
+        mem_mb=6144
     params:
         tsv=temp("data/work/{tumor}/varlociraptor/strelka2_1.tsv"),
         header="$HOME/resources/Vcf_files/headers/strelka2.contig_header.grch38.vcf"
@@ -119,6 +146,8 @@ rule vardict_vlr_input:
     output:
         tsv="data/work/{tumor}/varlociraptor/vardict.candidates.tsv",
         bcf="data/work/{tumor}/varlociraptor/vardict.candidates.bcf"
+    resources:
+        mem_mb=6144
     params:
         tsv1=temp("data/work/{tumor}/varlociraptor/vardict1.tsv"),
         tsv2=temp("data/work/{tumor}/varlociraptor/vardict2.tsv"),
@@ -139,11 +168,13 @@ rule vardict_vlr_input:
 
 rule varscan2_vlr_input:
     input:
-        vcf1="data/work/{tumor}/varscan2/somatic.fpfilter.norm.clean.vcf.gz",
-        vcf2="data/work/{tumor}/varscan2/germline.fpfilter.norm.clean.vcf.gz"
+        vcf1="data/work/{tumor}/varscan2/somatic.fpfilter.processed.norm.clean.vcf.gz",
+        vcf2="data/work/{tumor}/varscan2/germline.fpfilter.processed.norm.clean.vcf.gz"
     output:
         tsv="data/work/{tumor}/varlociraptor/varscan2.candidates.tsv",
         bcf="data/work/{tumor}/varlociraptor/varscan2.candidates.bcf"
+    resources:
+        mem_mb=6144
     params:
         tsv1=temp("data/work/{tumor}/varlociraptor/varscan2_1.tsv"),
         tsv2=temp("data/work/{tumor}/varlociraptor/varscan2_2.tsv"),
@@ -164,13 +195,15 @@ rule varscan2_vlr_input:
 
 rule candidate_bcf:
     input:
-        "data/work/{tumor}/varlociraptor/lancet.candidates.tsv",
+        "data/work/{tumor}/varlociraptor/lancet2.candidates.tsv",
         "data/work/{tumor}/varlociraptor/mutect2.candidates.tsv",
         "data/work/{tumor}/varlociraptor/strelka2.candidates.tsv",
         "data/work/{tumor}/varlociraptor/vardict.candidates.tsv",
         "data/work/{tumor}/varlociraptor/varscan2.candidates.tsv"
     output:
         "data/work/{tumor}/varlociraptor/pass_candidates.bcf"
+    resources:
+        mem_mb=6144
     params:
         tsv=temp("data/work/{tumor}/varlociraptor/pass_candidates.tsv"),
         header="$HOME/resources/Vcf_files/headers/paired_somatic.contig_header.grch38.vcf"
@@ -185,26 +218,29 @@ rule varlociraptor_estimate_properties:
         bam=lambda wildcards: BAMS[wildcards.sample]
     output:
         "data/work/{tumor}/varlociraptor/{sample}.alignment-properties.json"
+    resources:
+        mem_mb=18432
     params:
-        ref=config['reference']['fasta']
+        ref=config['reference']['fasta'],
+        exec=singularity_exec(VLR_SIF)
     shell:
         """
-        varlociraptor estimate alignment-properties {params.ref} --bam {input.bam} > {output}
+        {params.exec} varlociraptor estimate alignment-properties {params.ref} --bams {input.bam} > {output}
         """
 
-#bam
-#bcf=pass_candidates.bcf
-#aln=alignment-properties.json
 rule varlociraptor_preprocess_sample:
     input:
         unpack(map_preprocess)
     output:
         "data/work/{tumor}/varlociraptor/{sample}.observations.bcf"
+    resources:
+        mem_mb=18432
     params:
-        ref=config['reference']['fasta']
+        ref=config['reference']['fasta'],
+        exec=singularity_exec(VLR_SIF)
     shell:
         """
-        varlociraptor preprocess variants {params.ref} --alignment-properties {input.aln} --bam {input.bam} --candidates {input.bcf} > {output}
+        {params.exec} varlociraptor preprocess variants {params.ref} --alignment-properties {input.aln} --bam {input.bam} --candidates {input.bcf} > {output}
         """
 
 rule write_scenario:
@@ -226,20 +262,26 @@ rule varlociraptor_call_scenario:
         unpack(map_varlociraptor_scenario)
     output:
         "data/work/{tumor}/varlociraptor/{scenario}.bcf"
+    resources:
+        mem_mb=18432
+    params:
+        exec=singularity_exec(VLR_SIF)
     shell:
         """
-        varlociraptor call variants generic --scenario {input.scenario} --obs tumor={input.tumor} normal={input.normal} > {output}
+        {params.exec} varlociraptor call variants generic --scenario {input.scenario} --obs tumor={input.tumor} normal={input.normal} > {output}
         """
 
 rule bcftools_merge_sites:
     input:
-        "data/work/{tumor}/varlociraptor/lancet.candidates.bcf",
+        "data/work/{tumor}/varlociraptor/lancet2.candidates.bcf",
         "data/work/{tumor}/varlociraptor/mutect2.candidates.bcf",
         "data/work/{tumor}/varlociraptor/strelka2.candidates.bcf",
         "data/work/{tumor}/varlociraptor/vardict.candidates.bcf",
         "data/work/{tumor}/varlociraptor/varscan2.candidates.bcf"
     output:
         "data/work/{tumor}/varlociraptor/paired_somatic.bcf"
+    resources:
+        mem_mb=6144
     shell:
         """
         bcftools merge -m none --info-rules CATEGORY:join {input} | bcftools sort -Ob -W=csi -o {output}
@@ -251,14 +293,14 @@ rule bcftools_annotate_sites:
         bcf="data/work/{tumor}/varlociraptor/{scenario}.bcf"
     output:
         "data/work/{tumor}/varlociraptor/{scenario}.paired_somatic.vcf.gz"
+    resources:
+        mem_mb=6144
     shell:
         """
         bcftools index -f {input.bcf}
         bcftools index -f {input.sites}
-        bcftools annotate -a {input.sites} -c LANCET,MUTECT2,STRELKA2,VARDICT,VARSCAN2,CATEGORY -Oz -W=tbi -o {output} {input.bcf}
+        bcftools annotate -a {input.sites} -c LANCET2,MUTECT2,STRELKA2,VARDICT,VARSCAN2,CATEGORY -Oz -W=tbi -o {output} {input.bcf}
         """
-
-#Fill Tags, Set GT?
 
 #VEP appears to run a lot slower if the input is compressed.
 rule vep_annotation:
@@ -266,6 +308,8 @@ rule vep_annotation:
         "data/work/{tumor}/varlociraptor/{scenario}.paired_somatic.vcf.gz"
     output:
         "data/work/{tumor}/varlociraptor/{scenario}.paired_somatic.vep.vcf"
+    resources:
+        mem_mb=32768
     params:
         vcf=temp("data/work/{tumor}/varlociraptor/{scenario}.paired_somatic.vcf")
     shell:

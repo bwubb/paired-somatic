@@ -33,6 +33,8 @@ rule unprocessed_lancet2:
 # Bind /project + /home/bwubb (projects often symlink into /project). Never --pwd.
 # /scratch exists on compute nodes (submitted jobs), not on cybertron2 head node.
 LANCET2_SIF=config.get('lancet2',{}).get('container','/appl/containers/lancet_v2.8.7.sif')
+# Lancet2 --bed-file wants chrom/start/end only (3 columns). Full 6-col BEDs abort.
+LANCET2_BED=config.get('lancet2',{}).get('bed_file',config['resources']['targets_bed'])
 
 rule lancet2_main:
     input:
@@ -41,7 +43,7 @@ rule lancet2_main:
         "data/work/{tumor}/lancet2/somatic.vcf.gz"
     params:
         ref=config['reference']['fasta'],
-        region=config['resources']['targets_bed'],
+        bed=LANCET2_BED,
         sif=LANCET2_SIF
     threads: 4
     resources:
@@ -62,7 +64,7 @@ rule lancet2_main:
             --tumor {input.tumor} \
             --normal {input.normal} \
             --reference {params.ref} \
-            --region {params.region} \
+            --bed-file {params.bed} \
             --num-threads {threads} \
             --out-vcfgz "$OUT_VCF"
         """
@@ -110,7 +112,7 @@ rule lancet2_somatic_clean:
         bcftools index {params.vcf}
 
         bcftools view -s {wildcards.tumor},{params.normal} -e 'ALT="*"' -R {params.regions} {params.vcf} | \
-        bcftools annotate --set-id '%CHROM\_%POS\_%REF\_%ALT' | \
+        bcftools annotate --set-id '%CHROM_%POS_%REF_%ALT' | \
         bcftools sort -W=tbi -Oz -o {output.clean}
         """
 

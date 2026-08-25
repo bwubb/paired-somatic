@@ -196,9 +196,5 @@
 ##FILTER=<ID=PASS,Description="Passed filter methods">
 ##FILTER=<ID=FAIL,Description="Failed filter methods">
 ##INFO=<ID=LANCET2,Number=.,Type=String,Description="Lancet2 filter results">
-##INFO=<ID=MUTECT2,Number=.,Type=String,Description="Mutect2 filter results">
-##INFO=<ID=STRELKA2,Number=.,Type=String,Description="Strelka2 filter results">
-##INFO=<ID=VARDICT,Number=.,Type=String,Description="VarDict filter results">
-##INFO=<ID=VARSCAN2,Number=.,Type=String,Description="VarScan2 filter results">
 ##INFO=<ID=CATEGORY,Number=.,Type=String,Description="Variant Category, eg. Germline or Somatic">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO

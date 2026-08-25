@@ -195,7 +195,7 @@
 ##contig=<ID=KI270394.1,length=970>
 ##FILTER=<ID=PASS,Description="Passed filter methods">
 ##FILTER=<ID=FAIL,Description="Failed filter methods">
-##INFO=<ID=LANCET,Number=.,Type=String,Description="Lancet filter results">
+##INFO=<ID=LANCET2,Number=.,Type=String,Description="Lancet2 filter results">
 ##INFO=<ID=MUTECT2,Number=.,Type=String,Description="Mutect2 filter results">
 ##INFO=<ID=STRELKA2,Number=.,Type=String,Description="Strelka2 filter results">
 ##INFO=<ID=VARDICT,Number=.,Type=String,Description="VarDict filter results">

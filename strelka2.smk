@@ -1,5 +1,7 @@
 ##Author: Brad Wubbenhorst
 
+import os
+
 ### INIT ###
 
 with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
@@ -8,35 +10,25 @@ with open(config.get('project',{}).get('pair_table','pair.table'),'r') as p:
 with open(config.get('project',{}).get('bam_table','bam.table'),'r') as b:
     BAMS=dict(line.split('\t') for line in b.read().splitlines())
 
-# Illumina Manta + Strelka2 are archived and locked to Python 2. RHEL9 has no
-# python2 module, so host $HOME/software/.../config*.py fails with
-# "python2: No such file or directory". Run configure AND the generated
-# runWorkflow.py via Singularity BioContainers images that bundle python2.
-# Pull examples:
-#   singularity pull manta_1.6.0.sif \
-#     docker://quay.io/biocontainers/manta:1.6.0--py27h9948957_6
-#   singularity pull strelka_2.9.10.sif \
-#     docker://quay.io/biocontainers/strelka:2.9.10--0
-MANTA_SIF=config.get('strelka2',{}).get('manta_container','/home/bwubb/containers/manta_1.6.0.sif')
-STRELKA_SIF=config.get('strelka2',{}).get('strelka_container','/home/bwubb/containers/strelka_2.9.10.sif')
+# Manta + Strelka2 are locked to Python 2 (gone on RHEL9); run them from the
+# BioContainers images IT installed:
+#   quay.io/biocontainers/manta:1.6.0--py27h9948957_6
+#   quay.io/biocontainers/strelka:2.9.10--0
+MANTA_SIF=config.get('strelka2',{}).get('manta_container','/appl/containers/manta_1.6.0--py27h9948957_6.sif')
+STRELKA2_SIF=config.get('strelka2',{}).get('strelka2_container','/appl/containers/strelka2_2.9.10.sif')
 
-# Same bind pattern as lancet2 / cnvkit_singularity: physical cwd under /project,
-# never --pwd (symlink /home/.../projects breaks chdir).
-def singularity_exec(sif):
-    return (
-        'WORKDIR="$(pwd -P)"; cd "$WORKDIR"; '
-        'singularity exec '
-        '--bind /project:/project '
-        '--bind /home/bwubb:/home/bwubb '
-        '--bind /scratch:/scratch '
-        '--bind "$WORKDIR:$WORKDIR" '
-        f'{sif}'
-    )
+for _sif in (MANTA_SIF,STRELKA2_SIF):
+    if not os.path.exists(_sif):
+        raise FileNotFoundError(f"strelka2.smk: container not found: {_sif}")
+
+# /home/bwubb/resources is a symlink; inside the container it is mounted at
+# /opt/resources (same as VEP), so tools get the /opt path.
+REF_OPT=config['reference']['fasta'].replace('/home/bwubb/resources','/opt/resources')
+BEDGZ_OPT=config['resources']['targets_bedgz'].replace('/home/bwubb/resources','/opt/resources')
 
 ### FUNCTIONS ###
 
 def paired_bams(wildcards):
-    ref=config['reference']['key']
     tumor=wildcards.tumor
     normal=PAIRS[wildcards.tumor]
     return {'tumor':BAMS[wildcards.tumor],'normal':BAMS[normal]}
@@ -48,6 +40,10 @@ localrules: strelka2_sample_name
 rule run_strelka2:
     input: expand("data/final/{tumor}/{tumor}.strelka2.somatic.final.bcf",tumor=PAIRS.keys())
 
+# Container rules: SIF is copied to node-local /scratch (running it from NFS
+# stalls startup ~60-75s). /scratch differs per exec node, so the copy has to
+# happen in the job, not at Snakefile load. cp-then-mv keeps parallel jobs on
+# the same node from using a half-copied image.
 rule manta_write_workflow:
     input:
         unpack(paired_bams)
@@ -56,13 +52,24 @@ rule manta_write_workflow:
     resources:
         mem_mb=6144
     params:
+        sif=MANTA_SIF,
         runDir="data/work/{tumor}/manta",
-        reference=config['reference']['fasta'],
-        bedgz=config['resources']['targets_bedgz'],
-        exec=singularity_exec(MANTA_SIF)
+        reference=REF_OPT,
+        bedgz=BEDGZ_OPT
     shell:
         """
-        {params.exec} configManta.py \
+        WORKDIR="$(pwd -P)"
+        export SINGULARITY_TMPDIR=/scratch/$USER/sing_tmp
+        export SINGULARITY_CACHEDIR=/scratch/$USER/sing_cache
+        mkdir -p $SINGULARITY_TMPDIR $SINGULARITY_CACHEDIR /scratch/$USER/containers
+        SIF=/scratch/$USER/containers/$(basename {params.sif})
+        if [ ! -s "$SIF" ]; then cp {params.sif} "$SIF.$$" && mv "$SIF.$$" "$SIF"; fi
+
+        singularity exec --cleanenv \
+            --bind /scratch:/scratch \
+            --bind /home/bwubb/resources:/opt/resources \
+            --bind "$WORKDIR:$WORKDIR" \
+            "$SIF" configManta.py \
             --normalBam {input.normal} \
             --tumorBam {input.tumor} \
             --referenceFasta {params.reference} \
@@ -79,14 +86,25 @@ rule manta_main:
         "data/work/{tumor}/manta/results/variants/candidateSV.vcf.gz",
         "data/work/{tumor}/manta/results/variants/diploidSV.vcf.gz",
         "data/work/{tumor}/manta/results/variants/somaticSV.vcf.gz"
-    threads: 4
+    threads: 8
     resources:
-        mem_mb=18432
+        mem_mb=65536
     params:
-        exec=singularity_exec(MANTA_SIF)
+        sif=MANTA_SIF
     shell:
         """
-        {params.exec} {input} -m local -j {threads}
+        WORKDIR="$(pwd -P)"
+        export SINGULARITY_TMPDIR=/scratch/$USER/sing_tmp
+        export SINGULARITY_CACHEDIR=/scratch/$USER/sing_cache
+        mkdir -p $SINGULARITY_TMPDIR $SINGULARITY_CACHEDIR /scratch/$USER/containers
+        SIF=/scratch/$USER/containers/$(basename {params.sif})
+        if [ ! -s "$SIF" ]; then cp {params.sif} "$SIF.$$" && mv "$SIF.$$" "$SIF"; fi
+
+        singularity exec --cleanenv \
+            --bind /scratch:/scratch \
+            --bind /home/bwubb/resources:/opt/resources \
+            --bind "$WORKDIR:$WORKDIR" \
+            "$SIF" {input} -m local -j {threads} --memGb 64
         """
 
 rule strelka2_write_workflow:
@@ -98,13 +116,24 @@ rule strelka2_write_workflow:
     resources:
         mem_mb=6144
     params:
+        sif=STRELKA2_SIF,
         runDir="data/work/{tumor}/strelka2",
-        reference=config['reference']['fasta'],
-        bedgz=config['resources']['targets_bedgz'],
-        exec=singularity_exec(STRELKA_SIF)
+        reference=REF_OPT,
+        bedgz=BEDGZ_OPT
     shell:
         """
-        {params.exec} configureStrelkaSomaticWorkflow.py \
+        WORKDIR="$(pwd -P)"
+        export SINGULARITY_TMPDIR=/scratch/$USER/sing_tmp
+        export SINGULARITY_CACHEDIR=/scratch/$USER/sing_cache
+        mkdir -p $SINGULARITY_TMPDIR $SINGULARITY_CACHEDIR /scratch/$USER/containers
+        SIF=/scratch/$USER/containers/$(basename {params.sif})
+        if [ ! -s "$SIF" ]; then cp {params.sif} "$SIF.$$" && mv "$SIF.$$" "$SIF"; fi
+
+        singularity exec --cleanenv \
+            --bind /scratch:/scratch \
+            --bind /home/bwubb/resources:/opt/resources \
+            --bind "$WORKDIR:$WORKDIR" \
+            "$SIF" configureStrelkaSomaticWorkflow.py \
             --normalBam {input.normal} \
             --tumorBam {input.tumor} \
             --indelCandidates {input.indels} \
@@ -124,10 +153,21 @@ rule strelka2_main:
     resources:
         mem_mb=18432
     params:
-        exec=singularity_exec(STRELKA_SIF)
+        sif=STRELKA2_SIF
     shell:
         """
-        {params.exec} {input} -m local -j {threads}
+        WORKDIR="$(pwd -P)"
+        export SINGULARITY_TMPDIR=/scratch/$USER/sing_tmp
+        export SINGULARITY_CACHEDIR=/scratch/$USER/sing_cache
+        mkdir -p $SINGULARITY_TMPDIR $SINGULARITY_CACHEDIR /scratch/$USER/containers
+        SIF=/scratch/$USER/containers/$(basename {params.sif})
+        if [ ! -s "$SIF" ]; then cp {params.sif} "$SIF.$$" && mv "$SIF.$$" "$SIF"; fi
+
+        singularity exec --cleanenv \
+            --bind /scratch:/scratch \
+            --bind /home/bwubb/resources:/opt/resources \
+            --bind "$WORKDIR:$WORKDIR" \
+            "$SIF" {input} -m local -j {threads}
         """
 
 rule strelka2_concat:

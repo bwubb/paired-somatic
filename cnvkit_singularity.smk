@@ -10,17 +10,23 @@ def mkdir_p(path):
 
 # Host cnvkit.py dies on RHEL9 OpenSSL FIPS (pysam). Run via Singularity BioContainers image.
 # Override with cnvkit.container in config if needed.
-CNVKIT_SIF=config.get('cnvkit',{}).get('container','/home/bwubb/containers/cnvkit_0.9.10.sif')
-# Shell preamble: pwd -P so we sit on /project/... not a broken /home/.../projects symlink.
-# No --pwd (same DeepVariant gotcha). Relative paths work after cd "$WORKDIR".
+CNVKIT_SIF=config.get('cnvkit',{}).get('container','/appl/containers/cnvkit_0.9.10.sif')
+# VEP-style: scratch tmp/cache; copy SIF to node /scratch once; pwd -P (no --pwd).
 CNVKIT_EXEC=(
     'WORKDIR="$(pwd -P)"; cd "$WORKDIR"; '
-    'singularity exec '
-    '--bind /project:/project '
-    '--bind /home/bwubb:/home/bwubb '
+    'export SINGULARITY_TMPDIR="/scratch/$USER/sing_tmp"; '
+    'export SINGULARITY_CACHEDIR="/scratch/$USER/sing_cache"; '
+    'export APPTAINER_TMPDIR="/scratch/$USER/sing_tmp"; '
+    'export APPTAINER_CACHEDIR="/scratch/$USER/sing_cache"; '
+    'mkdir -p "$SINGULARITY_TMPDIR" "$SINGULARITY_CACHEDIR" "/scratch/$USER/containers"; '
+    f'SIF_SRC="{CNVKIT_SIF}"; '
+    'SIF_LOCAL="/scratch/$USER/containers/$(basename "$SIF_SRC")"; '
+    'if [ ! -s "$SIF_LOCAL" ]; then cp "$SIF_SRC" "$SIF_LOCAL"; fi; '
+    'singularity exec --cleanenv '
     '--bind /scratch:/scratch '
+    '--bind /home/bwubb/resources:/home/bwubb/resources '
     '--bind "$WORKDIR:$WORKDIR" '
-    f'{CNVKIT_SIF} cnvkit.py'
+    '"$SIF_LOCAL" cnvkit.py'
 )
 
 #Pair Table.

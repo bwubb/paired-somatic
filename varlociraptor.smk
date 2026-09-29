@@ -1,11 +1,6 @@
 ##Author: Brad Wubbenhorst
 # https://github.com/bwubb
-#
-# Varlociraptor is a Rust binary. Host cargo builds need libclang (not on RHEL9
-# modules here), so we run the BioContainers SIF instead:
-#   singularity pull $HOME/containers/varlociraptor.sif \
-#     docker://quay.io/biocontainers/varlociraptor:8.9.5--h24073b4_0
-# Override with varlociraptor.container in config if needed.
+
 
 import os
 import yaml
@@ -29,18 +24,25 @@ with open(config.get('analysis',{}).get('purity_table','purity.table'),'r') as u
 
 TUMORS=PAIRS.keys()
 
-VLR_SIF=config.get('varlociraptor',{}).get('container','/home/bwubb/containers/varlociraptor.sif')
+VLR_SIF=config.get('varlociraptor',{}).get('container','/appl/containers/varlociraptor_8.9.5.sif')
 
-# Same bind pattern as lancet2 / strelka2 / cnvkit_singularity.
+# VEP-style: scratch tmp/cache; copy SIF to node /scratch once; pwd -P (no --pwd).
 def singularity_exec(sif):
     return (
         'WORKDIR="$(pwd -P)"; cd "$WORKDIR"; '
-        'singularity exec '
-        '--bind /project:/project '
-        '--bind /home/bwubb:/home/bwubb '
+        'export SINGULARITY_TMPDIR="/scratch/$USER/sing_tmp"; '
+        'export SINGULARITY_CACHEDIR="/scratch/$USER/sing_cache"; '
+        'export APPTAINER_TMPDIR="/scratch/$USER/sing_tmp"; '
+        'export APPTAINER_CACHEDIR="/scratch/$USER/sing_cache"; '
+        'mkdir -p "$SINGULARITY_TMPDIR" "$SINGULARITY_CACHEDIR" "/scratch/$USER/containers"; '
+        f'SIF_SRC="{sif}"; '
+        'SIF_LOCAL="/scratch/$USER/containers/$(basename "$SIF_SRC")"; '
+        'if [ ! -s "$SIF_LOCAL" ]; then cp "$SIF_SRC" "$SIF_LOCAL"; fi; '
+        'singularity exec --cleanenv '
         '--bind /scratch:/scratch '
+        '--bind /home/bwubb/resources:/home/bwubb/resources '
         '--bind "$WORKDIR:$WORKDIR" '
-        f'{sif}'
+        '"$SIF_LOCAL"'
     )
 
 ### FUNCTIONS ###

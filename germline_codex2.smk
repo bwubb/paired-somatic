@@ -1,32 +1,35 @@
 import os
 
-#Germline-only CODEX2 (GRCh38, no "chr" prefix). No tumors.
-#Negative-control normalization: known exon-del carriers excluded from norm_index
-#(same spirit as cnvkit_exclude_normals), but still present in the coverage matrix for calling.
+#Germline-only CODEX2. Outdir hardcoded: data/work/codex2.
+#Samples: project.germline_list; BAM paths: project.bam_table.
+#BED: resources.targets_bed; genome: reference.key (GRCh38 / hg38).
+#Exclude list: out of norm_index, still in coverage matrix.
 #
-#Config (examples):
-#  project.pair_table / project.bam_table  (reuse)
-#  codex2.bed                              required Covered BED (GRCh38, no chr)
-#  codex2.exclude_normals                  default cnvkit_exclude_normals.list
-#  codex2.outdir                           default data/work/codex2
-#  codex2.mapq                             default 20
-#  codex2.mapp                             ones|getmapp (default ones)
-#  codex2.Kmax                             default 10
-#  codex2.chrs                             optional hard list (else from prep chrs.txt)
+#Optional:
+#  codex2.mapq (20)
+#  codex2.mappability none|getmapp (default none)
+#  codex2.Kmax (10)
 
-with open(config['project']['pair_table'],'r') as p:
-    PAIRS=dict(line.split('\t') for line in p.read().splitlines() if line.strip())
+with open(config['project']['germline_list'],'r') as s:
+    SAMPLES=[ln.strip() for ln in s if ln.strip() and not ln.startswith('#')]
 
 with open(config['project']['bam_table'],'r') as b:
     BAMS=dict(line.split('\t') for line in b.read().splitlines() if line.strip())
 
 CODEX=config.get('codex2',{})
-OUTDIR=CODEX.get('outdir','data/work/codex2')
-BED=CODEX.get('bed',config.get('resources',{}).get('targets_bed'))
-if not BED:
-    raise ValueError("Set codex2.bed (or resources.targets_bed) to a GRCh38 Covered BED without chr prefix")
+OUTDIR='data/work/codex2'
+BED=config['resources']['targets_bed']
+BAM_TABLE=config['project']['bam_table']
+GENOME_KEY=config['reference']['key']
+if GENOME_KEY not in ('GRCh38','hg38'):
+    raise ValueError(f"reference.key must be GRCh38 or hg38 for CODEX2 (got {GENOME_KEY})")
 MAPQ=CODEX.get('mapq',20)
-MAPP=CODEX.get('mapp','ones')
+#Accept old key "mapp: ones" as alias for none
+MAPP=CODEX.get('mappability',CODEX.get('mapp','none'))
+if MAPP=='ones':
+    MAPP='none'
+if MAPP not in ('none','getmapp'):
+    raise ValueError(f"codex2.mappability must be none or getmapp (got {MAPP})")
 KMAX=CODEX.get('Kmax',10)
 
 EXCLUDE=set()
@@ -35,15 +38,14 @@ if os.path.exists(_excl):
     with open(_excl,'r') as e:
         EXCLUDE={line.strip() for line in e if line.strip() and not line.startswith('#')}
 
-NORMALS=sorted(set(PAIRS.values()))
-CONTROLS=sorted(n for n in NORMALS if n not in EXCLUDE)
-CASES=sorted(n for n in NORMALS if n in EXCLUDE)
-
-_missing=[n for n in NORMALS if n not in BAMS]
+_missing=[n for n in SAMPLES if n not in BAMS]
 if _missing:
-    raise ValueError(f"normals missing from bam_table: {_missing}")
+    raise ValueError(f"germline_list samples missing from bam_table: {_missing}")
+
+CONTROLS=sorted(n for n in SAMPLES if n not in EXCLUDE)
+CASES=sorted(n for n in SAMPLES if n in EXCLUDE)
 if not CONTROLS:
-    raise ValueError("No control normals left for CODEX2 norm_index after exclude list")
+    raise ValueError("No control samples left for CODEX2 norm_index after exclude list")
 
 def codex2_chr_list(wildcards):
     if CODEX.get('chrs'):
@@ -55,19 +57,28 @@ def codex2_chr_list(wildcards):
 rule codex2_all:
     input:
         os.path.join(OUTDIR,'codex2.segments.filtered.txt'),
+        expand(os.path.join(OUTDIR,'{sample}.codex2.annotsv.gene_split.report.csv'),sample=SAMPLES),
+        os.path.join(OUTDIR,'samples.list'),
         os.path.join(OUTDIR,'controls.list'),
         os.path.join(OUTDIR,'cases.list')
 
+rule codex2_segments_all:
+    input:
+        os.path.join(OUTDIR,'codex2.segments.filtered.txt')
+
 rule codex2_sample_lists:
+    input:
+        bam_table=BAM_TABLE,
+        germline=config['project']['germline_list']
     output:
-        bams=os.path.join(OUTDIR,'bams.list'),
+        samples=os.path.join(OUTDIR,'samples.list'),
         controls=os.path.join(OUTDIR,'controls.list'),
         cases=os.path.join(OUTDIR,'cases.list')
     run:
         os.makedirs(OUTDIR,exist_ok=True)
-        with open(output.bams,'w') as o:
-            for n in NORMALS:
-                o.write(BAMS[n]+'\n')
+        with open(output.samples,'w') as o:
+            for n in SAMPLES:
+                o.write(n+'\n')
         with open(output.controls,'w') as o:
             for n in CONTROLS:
                 o.write(n+'\n')
@@ -77,7 +88,8 @@ rule codex2_sample_lists:
 
 checkpoint codex2_prep:
     input:
-        bams=os.path.join(OUTDIR,'bams.list'),
+        bam_table=BAM_TABLE,
+        samples=os.path.join(OUTDIR,'samples.list'),
         bed=BED
     output:
         qc=os.path.join(OUTDIR,'coverageQC.csv'),
@@ -86,12 +98,20 @@ checkpoint codex2_prep:
         chrs=os.path.join(OUTDIR,'chrs.txt')
     params:
         outdir=OUTDIR,
+        genome_key=GENOME_KEY,
         mapq=MAPQ,
-        mapp=MAPP
+        mappability=MAPP
     threads: 1
     shell:
         """
-        Rscript codex2_prep.R {input.bams} {input.bed} {params.outdir} {params.mapq} {params.mapp}
+        Rscript codex2_prep.R \
+          --bam-table {input.bam_table} \
+          --samples {input.samples} \
+          --bed {input.bed} \
+          --outdir {params.outdir} \
+          --genome {params.genome_key} \
+          --mapq {params.mapq} \
+          --mappability {params.mappability}
         """
 
 rule codex2_chr:
@@ -109,7 +129,11 @@ rule codex2_chr:
     threads: 1
     shell:
         """
-        Rscript codex2_run_chr.R {params.outdir} {wildcards.chr} {input.controls} {params.kmax}
+        Rscript codex2_run_chr.R \
+          --outdir {params.outdir} \
+          --chr {wildcards.chr} \
+          --controls {input.controls} \
+          --Kmax {params.kmax}
         """
 
 def codex2_merge_input(wildcards):
@@ -124,5 +148,38 @@ rule codex2_merge:
         outdir=OUTDIR
     shell:
         """
-        Rscript codex2_merge.R {params.outdir} {output}
+        Rscript codex2_merge.R --outdir {params.outdir} --output {output}
+        """
+
+rule codex2_to_bed:
+    input:
+        segs=os.path.join(OUTDIR,'codex2.segments.filtered.txt'),
+        samples=os.path.join(OUTDIR,'samples.list')
+    output:
+        expand(os.path.join(OUTDIR,'{sample}.codex2.bed'),sample=SAMPLES)
+    shell:
+        """
+        python cnv_to_bed.py -c codex2 --samples {input.samples} {input.segs}
+        """
+
+rule codex2_annotsv:
+    input:
+        os.path.join(OUTDIR,'{sample}.codex2.bed')
+    output:
+        os.path.join(OUTDIR,'{sample}.codex2.annotsv.gene_split.tsv')
+    params:
+        build=config['reference']['key']
+    shell:
+        """
+        AnnotSV -SVinputFile {input} -annotationMode split -genomeBuild {params.build} -tx ENSEMBL -outputFile {output}
+        """
+
+rule codex2_annotsv_parser:
+    input:
+        os.path.join(OUTDIR,'{sample}.codex2.annotsv.gene_split.tsv')
+    output:
+        os.path.join(OUTDIR,'{sample}.codex2.annotsv.gene_split.report.csv')
+    shell:
+        """
+        python annotsv_parser.py -i {input} -o {output} --tumor {wildcards.sample}
         """

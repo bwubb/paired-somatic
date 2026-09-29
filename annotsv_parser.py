@@ -6,14 +6,17 @@ import os
 csv.field_size_limit(sys.maxsize)
 
 def name_info(v):
+    #BED name: lengthbp;zyg;type;A{n|NA};B{n|NA}
+    #Total-CN-only (CODEX2): zyg=unknown, A/B=NA; Segment.CN filled from score later.
     y=v.split(';')
-    # Check and convert A and B values safely
-    A=y[3][1:] if y[3][1:].isdigit() or y[3][1:]=="NA" else "0"
-    B=y[4][1:] if y[4][1:].isdigit() or y[4][1:]=="NA" else "0"
+    if len(y)<5:
+        raise ValueError(f"bad AnnotSV user#1 (need length;zyg;type;A;B): {v}")
+    A=y[3][1:] if len(y[3])>1 and (y[3][1:].isdigit() or y[3][1:]=="NA") else "0"
+    B=y[4][1:] if len(y[4])>1 and (y[4][1:].isdigit() or y[4][1:]=="NA") else "0"
     A=int(A) if A!="NA" else A
     B=int(B) if B!="NA" else B
     x={'Segment.Length':y[0],'Segment.Zyg':y[1],'Segment.Type':y[2],'Segment.CNa':A,'Segment.CNb':B}
-    x['Segment.CN']=x['Segment.CNa']+x['Segment.CNb'] if isinstance(x['Segment.CNa'], int) and isinstance(x['Segment.CNb'], int) else "NA"
+    x['Segment.CN']=x['Segment.CNa']+x['Segment.CNb'] if isinstance(x['Segment.CNa'],int) and isinstance(x['Segment.CNb'],int) else "NA"
     return x
 
 def get_header():
@@ -40,7 +43,9 @@ def main(argv=None):
             outrow['TumorID']=argv['tumor']
             outrow.update(name_info(row['user#1']))
             if outrow['Segment.CN']=='NA':
-                outrow['Segment.CN']=f"{int(row['user#2'])/100}"
+                #score = total CN * 100 (set in cnv_to_bed)
+                cn=int(row['user#2'])/100.0
+                outrow['Segment.CN']=int(cn) if cn==int(cn) else cn
             writer.writerow(outrow)
 
 if __name__=='__main__':

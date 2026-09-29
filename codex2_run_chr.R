@@ -1,21 +1,38 @@
 #!/usr/bin/env Rscript
-#Germline CODEX2 per-chromosome: normalize with negative-control samples + integer CBS.
-#Known CNV carriers stay in the matrix but are excluded from norm_index.
+#Germline CODEX2 per-chromosome: normalize_codex2_ns + integer CBS.
 #
-#Usage:
-#  Rscript codex2_run_chr.R <outdir> <chr> <controls.list> [Kmax]
-#    outdir: same as prep (has coverageQC.csv, ref_qc.rds, library_size_factor.csv, ...)
-#    controls.list: clean normals used for normalize_codex2_ns (one sample ID per line)
-#    Kmax default 10
+#Rscript codex2_run_chr.R \
+#  --outdir data/work/codex2 \
+#  --chr 13 \
+#  --controls data/work/codex2/controls.list \
+#  [--Kmax 10]
 
-args<-commandArgs(trailingOnly=TRUE)
-if(length(args)<3){
-    stop("Usage: Rscript codex2_run_chr.R <outdir> <chr> <controls.list> [Kmax]")
+parse_args<-function(argv){
+    out<-list()
+    i<-1L
+    while(i<=length(argv)){
+        a<-argv[i]
+        if(!startsWith(a,"--")) stop("expected --flag, got: ",a)
+        key<-substring(a,3L)
+        if(i==length(argv)||startsWith(argv[i+1L],"--")){
+            out[[key]]<-TRUE
+            i<-i+1L
+        }else{
+            out[[key]]<-argv[i+1L]
+            i<-i+2L
+        }
+    }
+    out
 }
-outdir<-args[1]
-chr<-args[2]
-controls_fp<-args[3]
-Kmax<-if(length(args)>=4) as.integer(args[4]) else 10L
+
+args<-parse_args(commandArgs(trailingOnly=TRUE))
+if(is.null(args$outdir)||is.null(args$chr)||is.null(args$controls)){
+    stop("Required: --outdir --chr --controls")
+}
+outdir<-args$outdir
+chr<-args$chr
+controls_fp<-args$controls
+Kmax<-if(!is.null(args$Kmax)) as.integer(args$Kmax) else 10L
 K<-seq_len(Kmax)
 
 suppressPackageStartupMessages(library(CODEX2))
@@ -30,7 +47,6 @@ if(!file.exists(controls_fp)) stop("controls list not found: ",controls_fp)
 Y_qc<-as.matrix(read.csv(file.path(outdir,"coverageQC.csv"),row.names=1,check.names=FALSE))
 ref_qc<-readRDS(file.path(outdir,"ref_qc.rds"))
 Ndf<-read.csv(file.path(outdir,"library_size_factor.csv"),check.names=FALSE)
-#Align N to Y_qc columns.
 if("sample"%in%names(Ndf)&&"N"%in%names(Ndf)){
     N<-setNames(as.numeric(Ndf$N),as.character(Ndf$sample))
     N<-N[colnames(Y_qc)]
@@ -75,7 +91,6 @@ choiceofK(AIC.ns,BIC.ns,RSS.ns,K=K,filename=file.path(outdir,paste0("codex2_chr"
 optK<-which.max(BIC.ns)
 message("optK=",optK," (max BIC)")
 
-#Germline: integer mode. ref_qc must be chr-subset ranges (demo bugfix).
 finalcall.CBS<-segmentCBS(
     Y_qc[chr.index,,drop=FALSE],
     Yhat.ns,
@@ -90,7 +105,6 @@ finalcall.CBS<-segmentCBS(
 out_raw<-file.path(outdir,paste0("chr",chr,".codex2.segments.txt"))
 write.table(finalcall.CBS,file=out_raw,sep="\t",quote=FALSE,row.names=FALSE)
 
-#Author-recommended light filters (same as demo / old scripts).
 if(nrow(finalcall.CBS)){
     filter1<-finalcall.CBS$length_kb<=200
     filter2<-finalcall.CBS$length_kb/(finalcall.CBS$ed_exon-finalcall.CBS$st_exon+1)<50
